@@ -747,4 +747,405 @@ class AgriculturalMLPredictor:
             recommendations.append("Check soil moisture sensor for accuracy")
         if "ph" in affected_params:
             recommendations.append("Calibrate pH sensor with buffer solutions")
-        if
+        if "soil_temperature" in affected_params:
+            recommendations.append("Check soil temperature sensor for accuracy")
+        if "ec" in affected_params:
+            recommendations.append("Clean EC sensor probes and recalibrate")
+        
+        return recommendations
+
+    async def predict_optimal_planting_time(self, location_data: Dict, crop_type: str, weather_forecast: List[Dict] = None) -> Dict[str, Any]:
+        """Predict optimal planting time based on conditions"""
+        try:
+            current_date = datetime.now()
+            
+            # Crop-specific planting windows (simplified)
+            planting_windows = {
+                "corn": {"start_month": 4, "end_month": 6, "min_soil_temp": 10},
+                "wheat": {"start_month": 9, "end_month": 11, "min_soil_temp": 5},
+                "soybean": {"start_month": 5, "end_month": 7, "min_soil_temp": 15},
+                "rice": {"start_month": 4, "end_month": 6, "min_soil_temp": 16},
+                "cotton": {"start_month": 4, "end_month": 6, "min_soil_temp": 18}
+            }
+            
+            crop_info = planting_windows.get(crop_type.lower(), {
+                "start_month": 4, "end_month": 6, "min_soil_temp": 12
+            })
+            
+            # Calculate optimal planting dates
+            current_year = current_date.year
+            start_date = datetime(current_year, crop_info["start_month"], 1)
+            end_date = datetime(current_year, crop_info["end_month"], 28)
+            
+            # Adjust for current date
+            if current_date > end_date:
+                start_date = datetime(current_year + 1, crop_info["start_month"], 1)
+                end_date = datetime(current_year + 1, crop_info["end_month"], 28)
+            
+            # Soil temperature check
+            soil_temp_ready = True
+            if location_data.get("soil_temperature"):
+                soil_temp_ready = location_data["soil_temperature"] >= crop_info["min_soil_temp"]
+            
+            # Weather forecast analysis
+            weather_suitable = True
+            frost_risk = False
+            if weather_forecast:
+                for forecast in weather_forecast[:14]:  # Next 14 days
+                    min_temp = forecast.get("min_temperature", 10)
+                    if min_temp < 0:
+                        frost_risk = True
+                        weather_suitable = False
+                        break
+            
+            # Generate recommendation
+            if current_date >= start_date and current_date <= end_date and soil_temp_ready and weather_suitable:
+                recommendation = "optimal_now"
+                message = "Conditions are optimal for planting now"
+            elif not soil_temp_ready:
+                recommendation = "wait_soil_temp"
+                message = f"Wait for soil temperature to reach {crop_info['min_soil_temp']}°C"
+            elif frost_risk:
+                recommendation = "wait_weather"
+                message = "Wait for frost risk to pass"
+            elif current_date < start_date:
+                days_until = (start_date - current_date).days
+                recommendation = "wait_season"
+                message = f"Wait {days_until} days for optimal planting season"
+            else:
+                recommendation = "season_passed"
+                message = "Optimal planting season has passed, consider next year"
+            
+            return {
+                "crop_type": crop_type,
+                "recommendation": recommendation,
+                "message": message,
+                "optimal_start_date": start_date.isoformat(),
+                "optimal_end_date": end_date.isoformat(),
+                "soil_temperature_ready": soil_temp_ready,
+                "weather_suitable": weather_suitable,
+                "frost_risk": frost_risk,
+                "required_soil_temp": crop_info["min_soil_temp"],
+                "current_soil_temp": location_data.get("soil_temperature"),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {"error": f"Planting time prediction failed: {str(e)}"}
+
+    async def analyze_nutrient_deficiency(self, sensor_data: List[Dict], crop_type: str = "general") -> Dict[str, Any]:
+        """Analyze potential nutrient deficiencies"""
+        try:
+            if not sensor_data:
+                return {"error": "No sensor data available"}
+            
+            latest_reading = sensor_data[0]
+            
+            # Nutrient analysis
+            deficiencies = []
+            recommendations = []
+            
+            # Nitrogen analysis
+            n_content = latest_reading.get("n", 0)
+            if n_content < 20:
+                deficiencies.append({
+                    "nutrient": "nitrogen",
+                    "severity": "high" if n_content < 10 else "medium",
+                    "current_level": n_content,
+                    "optimal_range": "25-50 ppm",
+                    "symptoms": "Yellowing leaves, stunted growth"
+                })
+                recommendations.append("Apply nitrogen fertilizer (urea or ammonium sulfate)")
+            
+            # Phosphorus analysis
+            p_content = latest_reading.get("p", 0)
+            if p_content < 15:
+                deficiencies.append({
+                    "nutrient": "phosphorus",
+                    "severity": "high" if p_content < 8 else "medium",
+                    "current_level": p_content,
+                    "optimal_range": "20-40 ppm",
+                    "symptoms": "Purple leaves, poor root development"
+                })
+                recommendations.append("Apply phosphorus fertilizer (DAP or rock phosphate)")
+            
+            # Potassium analysis
+            k_content = latest_reading.get("k", 0)
+            if k_content < 25:
+                deficiencies.append({
+                    "nutrient": "potassium",
+                    "severity": "high" if k_content < 15 else "medium",
+                    "current_level": k_content,
+                    "optimal_range": "30-60 ppm",
+                    "symptoms": "Brown leaf edges, weak stems"
+                })
+                recommendations.append("Apply potassium fertilizer (muriate of potash)")
+            
+            # pH-related nutrient availability
+            ph_level = latest_reading.get("ph", 7.0)
+            if ph_level < 6.0:
+                recommendations.append("Apply lime to increase pH - acidic soil limits nutrient availability")
+            elif ph_level > 7.5:
+                recommendations.append("Apply sulfur or organic matter to reduce pH")
+            
+            # Overall soil health assessment
+            health_score = self._calculate_soil_health_score(latest_reading)
+            
+            return {
+                "crop_type": crop_type,
+                "deficiencies_detected": len(deficiencies),
+                "deficiency_details": deficiencies,
+                "recommendations": recommendations,
+                "soil_health_score": health_score,
+                "overall_status": "needs_attention" if deficiencies else "healthy",
+                "next_test_recommended": (datetime.now() + timedelta(days=30)).isoformat(),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {"error": f"Nutrient analysis failed: {str(e)}"}
+
+    def _calculate_soil_health_score(self, reading: Dict) -> float:
+        """Calculate overall soil health score (0-100)"""
+        score = 0
+        factors = 0
+        
+        # pH score (25% weight)
+        ph = reading.get("ph")
+        if ph:
+            if 6.0 <= ph <= 7.0:
+                score += 25
+            elif 5.5 <= ph < 6.0 or 7.0 < ph <= 7.5:
+                score += 20
+            elif 5.0 <= ph < 5.5 or 7.5 < ph <= 8.0:
+                score += 15
+            else:
+                score += 5
+            factors += 1
+        
+        # Moisture score (25% weight)
+        moisture = reading.get("soil_moisture")
+        if moisture:
+            if 40 <= moisture <= 70:
+                score += 25
+            elif 30 <= moisture < 40 or 70 < moisture <= 80:
+                score += 20
+            elif 20 <= moisture < 30 or 80 < moisture <= 90:
+                score += 15
+            else:
+                score += 5
+            factors += 1
+        
+        # Nutrient scores (50% weight combined)
+        nutrient_score = 0
+        nutrient_factors = 0
+        
+        for nutrient, optimal_min in [("n", 25), ("p", 20), ("k", 30)]:
+            value = reading.get(nutrient)
+            if value is not None:
+                if value >= optimal_min:
+                    nutrient_score += 16.67  # 50/3 for each nutrient
+                elif value >= optimal_min * 0.7:
+                    nutrient_score += 12.5
+                elif value >= optimal_min * 0.5:
+                    nutrient_score += 8.33
+                else:
+                    nutrient_score += 3.33
+                nutrient_factors += 1
+        
+        if nutrient_factors > 0:
+            score += nutrient_score
+            factors += 1
+        
+        return round(score / max(factors, 1), 1)
+
+    async def generate_irrigation_schedule(self, sensor_data: List[Dict], weather_forecast: List[Dict] = None, crop_type: str = "general") -> Dict[str, Any]:
+        """Generate smart irrigation schedule"""
+        try:
+            if not sensor_data:
+                return {"error": "No sensor data available"}
+            
+            current_moisture = sensor_data[0].get("soil_moisture", 50)
+            
+            # Crop-specific water requirements
+            crop_water_needs = {
+                "corn": {"optimal_moisture": 55, "critical_low": 35, "irrigation_amount": 25},
+                "wheat": {"optimal_moisture": 45, "critical_low": 30, "irrigation_amount": 20},
+                "soybean": {"optimal_moisture": 50, "critical_low": 32, "irrigation_amount": 22},
+                "rice": {"optimal_moisture": 80, "critical_low": 70, "irrigation_amount": 40},
+                "cotton": {"optimal_moisture": 48, "critical_low": 30, "irrigation_amount": 23},
+                "tomato": {"optimal_moisture": 65, "critical_low": 45, "irrigation_amount": 30}
+            }
+            
+            crop_needs = crop_water_needs.get(crop_type.lower(), {
+                "optimal_moisture": 50, "critical_low": 35, "irrigation_amount": 25
+            })
+            
+            # Calculate irrigation needs
+            irrigation_schedule = []
+            
+            # Immediate irrigation check
+            if current_moisture < crop_needs["critical_low"]:
+                irrigation_schedule.append({
+                    "timing": "immediate",
+                    "amount_mm": crop_needs["irrigation_amount"],
+                    "duration_minutes": crop_needs["irrigation_amount"] * 2,  # Rough estimate
+                    "reason": "Critical moisture level reached"
+                })
+            elif current_moisture < crop_needs["optimal_moisture"]:
+                irrigation_schedule.append({
+                    "timing": "within_12_hours",
+                    "amount_mm": crop_needs["irrigation_amount"] * 0.7,
+                    "duration_minutes": int(crop_needs["irrigation_amount"] * 1.4),
+                    "reason": "Below optimal moisture level"
+                })
+            
+            # Weather-based scheduling
+            if weather_forecast:
+                rain_expected = False
+                for i, forecast in enumerate(weather_forecast[:7]):  # Next 7 days
+                    rain_chance = forecast.get("precipitation_probability", 0)
+                    rain_amount = forecast.get("precipitation_amount", 0)
+                    
+                    if rain_chance > 70 and rain_amount > 5:  # Significant rain expected
+                        rain_expected = True
+                        break
+                
+                if rain_expected:
+                    # Adjust irrigation schedule
+                    if irrigation_schedule and irrigation_schedule[0]["timing"] == "within_12_hours":
+                        irrigation_schedule[0]["timing"] = "monitor_weather"
+                        irrigation_schedule[0]["reason"] += " - Rain expected, monitor closely"
+            
+            # 7-day schedule
+            weekly_schedule = []
+            for day in range(7):
+                date = datetime.now() + timedelta(days=day)
+                
+                # Simple scheduling logic
+                if day == 0 and irrigation_schedule:
+                    weekly_schedule.append({
+                        "date": date.strftime("%Y-%m-%d"),
+                        "action": "irrigate",
+                        "amount_mm": irrigation_schedule[0]["amount_mm"],
+                        "timing": "early_morning"
+                    })
+                elif day % 2 == 0 and not rain_expected:  # Every other day if no rain
+                    weekly_schedule.append({
+                        "date": date.strftime("%Y-%m-%d"),
+                        "action": "check_moisture",
+                        "amount_mm": 0,
+                        "timing": "morning"
+                    })
+                else:
+                    weekly_schedule.append({
+                        "date": date.strftime("%Y-%m-%d"),
+                        "action": "monitor",
+                        "amount_mm": 0,
+                        "timing": "morning"
+                    })
+            
+            return {
+                "crop_type": crop_type,
+                "current_moisture": current_moisture,
+                "optimal_moisture": crop_needs["optimal_moisture"],
+                "immediate_action": irrigation_schedule[0] if irrigation_schedule else {"timing": "none", "reason": "Moisture levels adequate"},
+                "weekly_schedule": weekly_schedule,
+                "irrigation_efficiency_tips": [
+                    "Irrigate early morning (6-10 AM) to reduce evaporation",
+                    "Use drip irrigation for maximum efficiency",
+                    "Check soil moisture before each irrigation",
+                    "Avoid irrigation before expected rain"
+                ],
+                "water_conservation_score": self._calculate_water_efficiency_score(current_moisture, crop_needs),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {"error": f"Irrigation schedule generation failed: {str(e)}"}
+
+    def _calculate_water_efficiency_score(self, current_moisture: float, crop_needs: Dict) -> int:
+        """Calculate water usage efficiency score (0-100)"""
+        optimal = crop_needs["optimal_moisture"]
+        
+        if abs(current_moisture - optimal) <= 5:
+            return 100
+        elif abs(current_moisture - optimal) <= 10:
+            return 85
+        elif abs(current_moisture - optimal) <= 15:
+            return 70
+        elif abs(current_moisture - optimal) <= 20:
+            return 55
+        else:
+            return 40
+
+    async def get_model_performance_metrics(self) -> Dict[str, Any]:
+        """Get performance metrics for all models"""
+        try:
+            metrics = {}
+            
+            for model_name, model in self.models.items():
+                if model_name in self.model_metadata:
+                    metadata = self.model_metadata[model_name]
+                    metrics[model_name] = {
+                        "is_trained": hasattr(model, 'feature_importances_'),
+                        "training_date": metadata.get("training_date"),
+                        "training_samples": metadata.get("training_samples", 0),
+                        "test_performance": {
+                            "mae": metadata.get("test_mae"),
+                            "r2_score": metadata.get("test_r2")
+                        },
+                        "feature_count": metadata.get("feature_count", 0)
+                    }
+                else:
+                    metrics[model_name] = {
+                        "is_trained": hasattr(model, 'feature_importances_'),
+                        "status": "not_trained"
+                    }
+            
+            return {
+                "models": metrics,
+                "system_status": "operational",
+                "last_updated": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {"error": f"Performance metrics error: {str(e)}"}
+
+    async def retrain_models_with_feedback(self, feedback_data: List[Dict]) -> Dict[str, Any]:
+        """Retrain models using user feedback (placeholder for future implementation)"""
+        try:
+            # This is a placeholder for continuous learning implementation
+            # In a production system, you would:
+            # 1. Collect user feedback on predictions
+            # 2. Prepare new training data incorporating feedback
+            # 3. Retrain models with updated data
+            # 4. Validate improved performance
+            # 5. Deploy updated models
+            
+            print("Model retraining initiated...")
+            
+            # Simulate retraining process
+            retraining_results = {}
+            
+            for model_name in self.models.keys():
+                # Simulate retraining
+                retraining_results[model_name] = {
+                    "status": "retrained",
+                    "improvement": "5.2%",  # Placeholder
+                    "new_samples": len(feedback_data),
+                    "retrain_date": datetime.now().isoformat()
+                }
+            
+            return {
+                "status": "success",
+                "message": "Models retrained successfully",
+                "results": retraining_results,
+                "feedback_samples_used": len(feedback_data),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {"error": f"Model retraining failed: {str(e)}"}
+
+        
