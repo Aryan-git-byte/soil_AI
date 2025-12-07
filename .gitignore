@@ -88,3 +88,7 @@ media/
 files/
 temp/
 tmp/
+
+# Ignore raw PDFs
+knowledge_pipeline/sources/*.pdf
+knowledge_pipeline/archive/**/*.pdf
