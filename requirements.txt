@@ -3,3 +3,6 @@ fastapi
 requests
 uvicorn
 python-dotenv
+httpx
+supabase
+rasterio

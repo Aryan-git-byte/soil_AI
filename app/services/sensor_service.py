@@ -20,14 +20,16 @@ async def get_latest_sensor_data(lat, lon, radius_km=1.0):
     if resp.data and len(resp.data) > 0:
         row = resp.data[0]
         return {
-            "soil_moisture": row["soil_moisture"],
-            "ec": row["ec"],
-            "soil_temperature": row["soil_temperature"],
-            "n": row["n"],
-            "p": row["p"],
-            "k": row["k"],
-            "ph": row["ph"],
-            "timestamp": row["timestamp"]
+            "soil_moisture": row.get("soil_moisture"),
+            "ec": row.get("ec"),
+            "soil_temperature": row.get("soil_temperature"),
+            "n": row.get("n"),
+            "p": row.get("p"),
+            "k": row.get("k"),
+            "ph": row.get("ph"),
+            "latitude": row.get("latitude"),  # ✅ ADD THIS
+            "longitude": row.get("longitude"),  # ✅ ADD THIS
+            "timestamp": row.get("timestamp")
         }
     
     return None

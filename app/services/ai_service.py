@@ -4,6 +4,7 @@ from app.core.config import OPENROUTER_KEYS, OPENWEATHER_API_KEY
 from app.services.location_service import LocationService
 from app.services.weather_service import WeatherService
 from app.services.sensor_service import get_latest_sensor_data
+from app.services.soil_service import get_soil_physical
 
 
 # -----------------------------
@@ -41,32 +42,36 @@ Your answer:
 
 
 # -----------------------------
-# OpenRouter fallback logic
+# OpenRouter fallback logic (FIXED)
 # -----------------------------
 async def call_openrouter(payload):
-    import requests  # Use sync requests for simplicity
+    """
+    Async version using httpx instead of requests.
+    Properly handles OpenRouter API with correct headers.
+    """
     
     for i, key in enumerate(OPENROUTER_KEYS):
         try:
             print(f"[OpenRouter] Trying key {i+1}/{len(OPENROUTER_KEYS)}...")
             
-            r = requests.post(
-                "https://openrouter.io/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "HTTP-Referer": "FarmBot",
-                    "X-Title": "FarmBot"
-                },
-                json=payload,
-                timeout=40
-            )
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://farmbot.com",
+                        "X-Title": "FarmBot Nova"
+                    },
+                    json=payload
+                )
 
-            if r.status_code == 200:
-                print(f"[OpenRouter] ✅ Key {i+1} succeeded")
-                return r.json()
-            else:
-                error_msg = r.text[:200] if r.text else "No error body"
-                print(f"[OpenRouter] Key {i+1} failed: {r.status_code} - {error_msg}")
+                if response.status_code == 200:
+                    print(f"[OpenRouter] ✅ Key {i+1} succeeded")
+                    return response.json()
+                else:
+                    error_msg = response.text[:200] if response.text else "No error body"
+                    print(f"[OpenRouter] Key {i+1} failed: {response.status_code} - {error_msg}")
 
         except Exception as e:
             print(f"[OpenRouter] Key {i+1} exception: {str(e)[:150]}")
@@ -96,6 +101,14 @@ async def process_ai_query(query: str, lat: float = None, lon: float = None):
     
     # 2️⃣ Get full location context (weather, soil, wikipedia, monuments)
     location_context = location_service.build_location_context(lat, lon, weather_service)
+
+    # Add soil physical properties
+    try:
+        soil_physical = get_soil_physical(lat, lon)
+        location_context["soil_physical"] = soil_physical
+    except Exception as e:
+        location_context["soil_physical"] = None
+        print(f"[Soil Physical] Error: {e}")
 
     # 3️⃣ If lat/lon were provided, fetch sensor data separately (if available)
     if lat is not None and lon is not None and sensor is None:
