@@ -52,7 +52,7 @@ async def analyze_image(
         if sensor:
             lat = float(sensor["latitude"])
             lon = float(sensor["longitude"])
-            location_context = await get_location_context(lat, lon)
+            location_context = get_location_context(lat, lon)
 
             extra_context = {
                 "location_context": location_context,

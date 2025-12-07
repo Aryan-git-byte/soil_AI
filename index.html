@@ -581,7 +581,7 @@
                 // If image is attached, use image analysis endpoint
                 if (selectedImage) {
                     const formData = new FormData();
-                    formData.append('image', selectedImage);
+                    formData.append('file', selectedImage);
                     formData.append('query', query);
                     formData.append('auth_id', currentAuthId);
                     
