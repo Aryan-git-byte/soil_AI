@@ -5,7 +5,7 @@ from app.core.config import OPENROUTER_KEYS, OPENWEATHER_API_KEY
 from app.services.location_service import LocationService
 from app.services.weather_service import WeatherService
 from app.services.sensor_service import get_latest_sensor_data
-from app.services.soil_service import get_soil_physical
+from app.services.soil_service import get_soil_physical, classify_indian_soil_type
 from app.services.conversation_service import ConversationService
 
 
@@ -21,6 +21,8 @@ Your job:
 - give short, practical, actionable farming advice
 - keep answers simple enough for farmers
 - consider soil, weather, texture, location, and sensor data
+- if the Indian soil classification is provided, use it for crop recommendations
+- mention the soil type (Alluvial, Black/Regur, Red & Yellow, Laterite, etc.) when giving advice
 - if data is missing, say it clearly
 - be friendly and remember user details they've shared (like their name, crops, location preferences)
 
@@ -121,8 +123,21 @@ async def process_ai_query(
     try:
         soil_physical = get_soil_physical(lat, lon)
         location_context["soil_physical"] = soil_physical
+        
+        # Classify Indian soil type
+        if soil_physical.get("sand_percent") and soil_physical.get("clay_percent") and soil_physical.get("silt_percent"):
+            indian_soil = classify_indian_soil_type(
+                sand_percent=soil_physical["sand_percent"],
+                clay_percent=soil_physical["clay_percent"],
+                silt_percent=soil_physical["silt_percent"],
+                texture=soil_physical["texture"],
+                lat=lat,
+                lon=lon
+            )
+            location_context["indian_soil_classification"] = indian_soil
     except Exception as e:
         location_context["soil_physical"] = None
+        location_context["indian_soil_classification"] = None
         print(f"[Soil Physical] Error: {e}")
 
     # 3️⃣ If lat/lon were provided, fetch sensor data separately (if available)
