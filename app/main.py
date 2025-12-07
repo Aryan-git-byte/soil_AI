@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.ai import router as ai_router
 from app.routers.location import router as location_router
+from app.routers.image import router as image_router
 
 app = FastAPI(title="FarmBot Nova Backend")
 
@@ -17,6 +18,7 @@ app.add_middleware(
 
 app.include_router(location_router)
 app.include_router(ai_router)
+app.include_router(image_router)
 
 @app.get("/")
 async def root():

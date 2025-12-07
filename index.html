@@ -96,7 +96,7 @@
 
         .input-group textarea {
             resize: vertical;
-            min-height: 100px;
+            min-height: 80px;
         }
 
         .coords-group {
@@ -232,6 +232,13 @@
             line-height: 1.6;
         }
 
+        .message-image {
+            max-width: 300px;
+            border-radius: 8px;
+            margin-top: 10px;
+            border: 2px solid #333;
+        }
+
         /* Markdown styling */
         .message-content h1, .message-content h2, .message-content h3, 
         .message-content h4, .message-content h5, .message-content h6 {
@@ -323,6 +330,47 @@
         .json-boolean { color: #569cd6; }
         .json-null { color: #569cd6; }
 
+        .image-upload-section {
+            background: #0a0a0a;
+            border: 2px dashed #333;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .image-upload-section:hover {
+            border-color: #555;
+        }
+
+        .image-upload-section.active {
+            border-color: #4fc3f7;
+            background: #0f1f2a;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .remove-image {
+            background: #f00;
+            color: #fff;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
+
+        #imageInput {
+            display: none;
+        }
+
         @media (max-width: 968px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -338,7 +386,7 @@
     <div class="container">
         <div class="header">
             <h1>🌾 FarmBot Nova</h1>
-            <p>Your AI-Powered Agricultural Assistant with Memory</p>
+            <p>Your AI-Powered Agricultural Assistant with Memory & Vision</p>
         </div>
 
         <div class="main-content">
@@ -385,8 +433,20 @@
                     <p style="color: #666; text-align: center;">Set your Auth ID to start chatting...</p>
                 </div>
 
+                <!-- Image Upload Section -->
+                <div class="image-upload-section" id="imageUploadSection">
+                    <p style="color: #aaa;">📸 Click to upload image (optional)</p>
+                    <p style="color: #666; font-size: 0.85rem; margin-top: 5px;">Crop diseases, plant health, soil analysis, pests, weeds</p>
+                    <input type="file" id="imageInput" accept="image/jpeg,image/jpg,image/png,image/webp">
+                    <div id="imagePreviewContainer" style="display: none;">
+                        <img id="imagePreview" class="image-preview" alt="Preview">
+                        <br>
+                        <button class="remove-image" id="removeImageBtn">Remove Image</button>
+                    </div>
+                </div>
+
                 <div class="input-group">
-                    <textarea id="query" placeholder="Ask me anything about farming..." disabled></textarea>
+                    <textarea id="query" placeholder="Ask me anything about farming or describe your image..." disabled></textarea>
                 </div>
                 
                 <button class="btn" id="askBtn" disabled>Send Message</button>
@@ -404,6 +464,7 @@
 
         let currentAuthId = null;
         let currentConvId = null;
+        let selectedImage = null;
 
         const elements = {
             authId: document.getElementById('authId'),
@@ -419,7 +480,12 @@
             latitude: document.getElementById('latitude'),
             longitude: document.getElementById('longitude'),
             messagesArea: document.getElementById('messagesArea'),
-            error: document.getElementById('error')
+            error: document.getElementById('error'),
+            imageInput: document.getElementById('imageInput'),
+            imageUploadSection: document.getElementById('imageUploadSection'),
+            imagePreviewContainer: document.getElementById('imagePreviewContainer'),
+            imagePreview: document.getElementById('imagePreview'),
+            removeImageBtn: document.getElementById('removeImageBtn')
         };
 
         // Set Auth ID
@@ -432,7 +498,7 @@
             }
 
             currentAuthId = authId;
-            currentConvId = null; // Will be generated on first message
+            currentConvId = null;
             
             elements.userInfo.style.display = 'block';
             elements.newConvBtn.style.display = 'block';
@@ -458,6 +524,33 @@
             elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
         });
 
+        // Image upload handling
+        elements.imageUploadSection.addEventListener('click', () => {
+            elements.imageInput.click();
+        });
+
+        elements.imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                selectedImage = file;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    elements.imagePreview.src = e.target.result;
+                    elements.imagePreviewContainer.style.display = 'block';
+                    elements.imageUploadSection.classList.add('active');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        elements.removeImageBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectedImage = null;
+            elements.imageInput.value = '';
+            elements.imagePreviewContainer.style.display = 'none';
+            elements.imageUploadSection.classList.remove('active');
+        });
+
         // Send message
         elements.askBtn.addEventListener('click', async () => {
             const query = elements.query.value.trim();
@@ -475,37 +568,72 @@
             hideError();
             
             // Add user message to UI
-            addMessage('user', query);
+            const imageUrl = selectedImage ? elements.imagePreview.src : null;
+            addMessage('user', query, null, imageUrl);
             elements.query.value = '';
             
             elements.loading.classList.add('active');
             elements.askBtn.disabled = true;
 
             try {
-                const params = new URLSearchParams({
-                    query,
-                    auth_id: currentAuthId
-                });
+                let data;
                 
-                if (currentConvId) {
-                    params.append('conversation_id', currentConvId);
-                }
-                
-                const lat = elements.latitude.value.trim();
-                const lon = elements.longitude.value.trim();
-                
-                if (lat && lon) {
-                    params.append('lat', lat);
-                    params.append('lon', lon);
-                }
+                // If image is attached, use image analysis endpoint
+                if (selectedImage) {
+                    const formData = new FormData();
+                    formData.append('image', selectedImage);
+                    formData.append('query', query);
+                    formData.append('auth_id', currentAuthId);
+                    
+                    if (currentConvId) {
+                        formData.append('conversation_id', currentConvId);
+                    }
+                    
+                    const response = await fetch(`${API_BASE}/api/image/analyze`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    }
+                    
+                    data = await response.json();
+                    data.answer = data.analysis; // Normalize response format
+                    
+                    // Clear image after sending
+                    selectedImage = null;
+                    elements.imageInput.value = '';
+                    elements.imagePreviewContainer.style.display = 'none';
+                    elements.imageUploadSection.classList.remove('active');
+                    
+                } else {
+                    // Regular text query
+                    const params = new URLSearchParams({
+                        query,
+                        auth_id: currentAuthId
+                    });
+                    
+                    if (currentConvId) {
+                        params.append('conversation_id', currentConvId);
+                    }
+                    
+                    const lat = elements.latitude.value.trim();
+                    const lon = elements.longitude.value.trim();
+                    
+                    if (lat && lon) {
+                        params.append('lat', lat);
+                        params.append('lon', lon);
+                    }
 
-                const response = await fetch(`${API_BASE}/api/ai/ask?${params}`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                }
+                    const response = await fetch(`${API_BASE}/api/ai/ask?${params}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    }
 
-                const data = await response.json();
+                    data = await response.json();
+                }
                 
                 // Update conversation ID if it was a new conversation
                 if (!currentConvId) {
@@ -514,7 +642,9 @@
                 }
                 
                 // Update message count
-                elements.messageCount.textContent = data.message_count;
+                if (data.message_count) {
+                    elements.messageCount.textContent = data.message_count;
+                }
                 
                 // Add assistant response to UI
                 addMessage('assistant', data.answer, data.context_used);
@@ -528,7 +658,7 @@
         });
 
         // Add message to chat
-        function addMessage(role, content, context = null) {
+        function addMessage(role, content, context = null, imageUrl = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
             
@@ -548,6 +678,9 @@
                 }
             } else {
                 html += `<div class="message-content">${content}</div>`;
+                if (imageUrl) {
+                    html += `<img src="${imageUrl}" class="message-image" alt="Uploaded image">`;
+                }
             }
             
             messageDiv.innerHTML = html;

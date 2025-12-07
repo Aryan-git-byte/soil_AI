@@ -282,3 +282,16 @@ class LocationService:
             "weather": weather,
             "nearby_monuments": monuments
         }
+
+# ---------------------------------------------------
+# Public function used by API + other services
+# ---------------------------------------------------
+
+location_service = LocationService()
+
+def get_location_context(lat: float, lon: float):
+    """
+    Global wrapper so other modules can call the service easily.
+    Mirrors the old function name used everywhere.
+    """
+    return location_service.build_location_context(lat, lon)
