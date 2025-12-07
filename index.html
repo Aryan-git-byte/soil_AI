@@ -42,7 +42,7 @@
 
         .main-content {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 2fr;
             gap: 20px;
             margin-bottom: 20px;
         }
@@ -59,6 +59,12 @@
             color: #fff;
             margin-bottom: 20px;
             font-size: 1.5rem;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
         }
 
         .input-group {
@@ -128,6 +134,35 @@
             transform: none;
         }
 
+        .btn-secondary {
+            background: #333;
+            color: #fff;
+            font-size: 0.9rem;
+            padding: 10px 20px;
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover {
+            background: #444;
+        }
+
+        .user-info {
+            background: #0a0a0a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .user-info p {
+            color: #aaa;
+            font-size: 0.9rem;
+            margin: 5px 0;
+        }
+
+        .user-info strong {
+            color: #fff;
+        }
+
         .loading {
             display: none;
             text-align: center;
@@ -153,162 +188,85 @@
             100% { transform: rotate(360deg); }
         }
 
-        .response-card {
-            grid-column: 1 / -1;
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
         }
 
-        .response-content {
+        .messages-area {
             background: #0a0a0a;
             border: 1px solid #333;
             border-radius: 8px;
             padding: 20px;
-            margin-top: 15px;
-            display: none;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
         }
 
-        .response-content.active {
-            display: block;
+        .message {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 8px;
         }
 
-        .response-content h3 {
-            color: #fff;
-            margin-bottom: 15px;
+        .message.user {
+            background: #1a1a1a;
+            border-left: 4px solid #fff;
+        }
+
+        .message.assistant {
+            background: #0f0f0f;
+            border-left: 4px solid #4fc3f7;
+        }
+
+        .message-role {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .message-content {
+            color: #ccc;
+            line-height: 1.6;
         }
 
         /* Markdown styling */
-        .answer-text {
-            line-height: 1.8;
-            color: #ccc;
-        }
-
-        .answer-text h1, .answer-text h2, .answer-text h3, 
-        .answer-text h4, .answer-text h5, .answer-text h6 {
+        .message-content h1, .message-content h2, .message-content h3, 
+        .message-content h4, .message-content h5, .message-content h6 {
             color: #fff;
-            margin-top: 1.5em;
+            margin-top: 1em;
             margin-bottom: 0.5em;
         }
 
-        .answer-text h1 { font-size: 2em; }
-        .answer-text h2 { font-size: 1.7em; }
-        .answer-text h3 { font-size: 1.4em; }
+        .message-content h1 { font-size: 1.8em; }
+        .message-content h2 { font-size: 1.5em; }
+        .message-content h3 { font-size: 1.3em; }
 
-        .answer-text p {
+        .message-content p {
             margin-bottom: 1em;
         }
 
-        .answer-text ul, .answer-text ol {
+        .message-content ul, .message-content ol {
             margin-left: 1.5em;
             margin-bottom: 1em;
         }
 
-        .answer-text li {
+        .message-content li {
             margin-bottom: 0.5em;
         }
 
-        .answer-text strong {
+        .message-content strong {
             color: #fff;
             font-weight: 600;
         }
 
-        .answer-text em {
-            color: #aaa;
-        }
-
-        .answer-text code {
+        .message-content code {
             background: #1a1a1a;
             padding: 2px 6px;
             border-radius: 3px;
             color: #4fc3f7;
-            font-family: 'Courier New', monospace;
-        }
-
-        .answer-text pre {
-            background: #1a1a1a;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-            border: 1px solid #333;
-        }
-
-        .answer-text pre code {
-            background: none;
-            padding: 0;
-        }
-
-        .answer-text blockquote {
-            border-left: 4px solid #555;
-            padding-left: 1em;
-            margin-left: 0;
-            color: #888;
-            font-style: italic;
-        }
-
-        .answer-text a {
-            color: #4fc3f7;
-            text-decoration: none;
-        }
-
-        .answer-text a:hover {
-            text-decoration: underline;
-        }
-
-        .context-section {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 2px solid #333;
-        }
-
-        .context-toggle {
-            background: #fff;
-            color: #000;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            margin-bottom: 15px;
-            font-weight: 600;
-        }
-
-        .context-toggle:hover {
-            background: #ddd;
-        }
-
-        .context-data {
-            background: #0a0a0a;
-            padding: 15px;
-            border: 1px solid #333;
-            border-radius: 8px;
-            overflow-x: auto;
-            display: none;
-            font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-            line-height: 1.6;
-        }
-
-        .context-data.active {
-            display: block;
-        }
-
-        /* JSON syntax highlighting */
-        .json-key {
-            color: #9cdcfe;
-        }
-
-        .json-string {
-            color: #ce9178;
-        }
-
-        .json-number {
-            color: #b5cea8;
-        }
-
-        .json-boolean {
-            color: #569cd6;
-        }
-
-        .json-null {
-            color: #569cd6;
         }
 
         .error {
@@ -318,6 +276,7 @@
             border-radius: 5px;
             color: #ff6b6b;
             display: none;
+            margin-bottom: 15px;
         }
 
         .error.active {
@@ -330,17 +289,47 @@
             font-size: 0.9rem;
         }
 
-        @media (max-width: 768px) {
+        .context-toggle {
+            background: #333;
+            color: #fff;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
+
+        .context-data {
+            background: #0a0a0a;
+            padding: 10px;
+            border: 1px solid #333;
+            border-radius: 5px;
+            overflow-x: auto;
+            display: none;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            margin-top: 10px;
+            max-height: 200px;
+        }
+
+        .context-data.active {
+            display: block;
+        }
+
+        .json-key { color: #9cdcfe; }
+        .json-string { color: #ce9178; }
+        .json-number { color: #b5cea8; }
+        .json-boolean { color: #569cd6; }
+        .json-null { color: #569cd6; }
+
+        @media (max-width: 968px) {
             .main-content {
                 grid-template-columns: 1fr;
             }
 
             .header h1 {
                 font-size: 2rem;
-            }
-
-            .coords-group {
-                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -349,53 +338,62 @@
     <div class="container">
         <div class="header">
             <h1>🌾 FarmBot Nova</h1>
-            <p>Your AI-Powered Agricultural Assistant</p>
+            <p>Your AI-Powered Agricultural Assistant with Memory</p>
         </div>
 
         <div class="main-content">
-            <div class="card">
-                <h2>📍 Location (Optional)</h2>
-                <div class="coords-group">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="card">
+                    <h2>👤 User Settings</h2>
                     <div class="input-group">
-                        <label for="latitude">Latitude</label>
-                        <input type="number" id="latitude" step="0.000001" placeholder="e.g., 25.5941">
+                        <label for="authId">Your Auth ID</label>
+                        <input type="text" id="authId" placeholder="e.g., 7659753">
                     </div>
-                    <div class="input-group">
-                        <label for="longitude">Longitude</label>
-                        <input type="number" id="longitude" step="0.000001" placeholder="e.g., 85.1376">
+                    <button class="btn" id="setAuthBtn">Set Auth ID</button>
+                    <div class="user-info" id="userInfo" style="display: none; margin-top: 15px;">
+                        <p><strong>Auth ID:</strong> <span id="displayAuthId">-</span></p>
+                        <p><strong>Conversation ID:</strong> <span id="displayConvId">-</span></p>
+                        <p><strong>Messages:</strong> <span id="messageCount">0</span></p>
                     </div>
+                    <button class="btn btn-secondary" id="newConvBtn" style="display: none;">Start New Conversation</button>
                 </div>
-                <p class="note-text">
-                    Leave empty to use latest sensor location
-                </p>
+
+                <div class="card">
+                    <h2>📍 Location</h2>
+                    <div class="coords-group">
+                        <div class="input-group">
+                            <label for="latitude">Latitude</label>
+                            <input type="number" id="latitude" step="0.000001" placeholder="25.5941">
+                        </div>
+                        <div class="input-group">
+                            <label for="longitude">Longitude</label>
+                            <input type="number" id="longitude" step="0.000001" placeholder="85.1376">
+                        </div>
+                    </div>
+                    <p class="note-text">Optional - uses sensor location if empty</p>
+                </div>
             </div>
 
-            <div class="card">
-                <h2>❓ Ask FarmBot</h2>
-                <div class="input-group">
-                    <label for="query">Your Question</label>
-                    <textarea id="query" placeholder="e.g., What crops should I plant?"></textarea>
+            <!-- Chat Area -->
+            <div class="card chat-container">
+                <h2>💬 Chat with FarmBot</h2>
+                
+                <div class="error" id="error"></div>
+                
+                <div class="messages-area" id="messagesArea">
+                    <p style="color: #666; text-align: center;">Set your Auth ID to start chatting...</p>
                 </div>
-                <button class="btn" id="askBtn">Ask FarmBot</button>
+
+                <div class="input-group">
+                    <textarea id="query" placeholder="Ask me anything about farming..." disabled></textarea>
+                </div>
+                
+                <button class="btn" id="askBtn" disabled>Send Message</button>
+                
                 <div class="loading" id="loading">
                     <div class="spinner"></div>
                     <p style="margin-top: 10px; color: #aaa;">Thinking...</p>
-                </div>
-            </div>
-
-            <div class="card response-card">
-                <h2>🤖 FarmBot's Response</h2>
-                
-                <div class="error" id="error"></div>
-
-                <div class="response-content" id="responseContent">
-                    <h3>Answer:</h3>
-                    <div class="answer-text" id="answerText"></div>
-
-                    <div class="context-section">
-                        <button class="context-toggle" id="contextToggle">Show Context Data</button>
-                        <div class="context-data" id="contextData"></div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -404,35 +402,94 @@
     <script>
         const API_BASE = 'http://localhost:8000';
 
+        let currentAuthId = null;
+        let currentConvId = null;
+
         const elements = {
+            authId: document.getElementById('authId'),
+            setAuthBtn: document.getElementById('setAuthBtn'),
+            newConvBtn: document.getElementById('newConvBtn'),
+            userInfo: document.getElementById('userInfo'),
+            displayAuthId: document.getElementById('displayAuthId'),
+            displayConvId: document.getElementById('displayConvId'),
+            messageCount: document.getElementById('messageCount'),
             askBtn: document.getElementById('askBtn'),
             loading: document.getElementById('loading'),
             query: document.getElementById('query'),
             latitude: document.getElementById('latitude'),
             longitude: document.getElementById('longitude'),
-            responseContent: document.getElementById('responseContent'),
-            answerText: document.getElementById('answerText'),
-            contextData: document.getElementById('contextData'),
-            contextToggle: document.getElementById('contextToggle'),
+            messagesArea: document.getElementById('messagesArea'),
             error: document.getElementById('error')
         };
 
-        // Ask FarmBot
+        // Set Auth ID
+        elements.setAuthBtn.addEventListener('click', () => {
+            const authId = elements.authId.value.trim();
+            
+            if (!authId) {
+                showError('Please enter an Auth ID!');
+                return;
+            }
+
+            currentAuthId = authId;
+            currentConvId = null; // Will be generated on first message
+            
+            elements.userInfo.style.display = 'block';
+            elements.newConvBtn.style.display = 'block';
+            elements.displayAuthId.textContent = authId;
+            elements.displayConvId.textContent = 'New conversation';
+            elements.messageCount.textContent = '0';
+            
+            elements.query.disabled = false;
+            elements.askBtn.disabled = false;
+            
+            elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
+            
+            hideError();
+        });
+
+        // Start new conversation
+        elements.newConvBtn.addEventListener('click', () => {
+            if (!currentAuthId) return;
+            
+            currentConvId = null;
+            elements.displayConvId.textContent = 'New conversation';
+            elements.messageCount.textContent = '0';
+            elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
+        });
+
+        // Send message
         elements.askBtn.addEventListener('click', async () => {
             const query = elements.query.value.trim();
             
             if (!query) {
-                showError('Please enter a question!');
+                showError('Please enter a message!');
+                return;
+            }
+
+            if (!currentAuthId) {
+                showError('Please set your Auth ID first!');
                 return;
             }
 
             hideError();
-            elements.responseContent.classList.remove('active');
+            
+            // Add user message to UI
+            addMessage('user', query);
+            elements.query.value = '';
+            
             elements.loading.classList.add('active');
             elements.askBtn.disabled = true;
 
             try {
-                const params = new URLSearchParams({ query });
+                const params = new URLSearchParams({
+                    query,
+                    auth_id: currentAuthId
+                });
+                
+                if (currentConvId) {
+                    params.append('conversation_id', currentConvId);
+                }
                 
                 const lat = elements.latitude.value.trim();
                 const lon = elements.longitude.value.trim();
@@ -450,7 +507,17 @@
 
                 const data = await response.json();
                 
-                displayResponse(data);
+                // Update conversation ID if it was a new conversation
+                if (!currentConvId) {
+                    currentConvId = data.conversation_id;
+                    elements.displayConvId.textContent = currentConvId;
+                }
+                
+                // Update message count
+                elements.messageCount.textContent = data.message_count;
+                
+                // Add assistant response to UI
+                addMessage('assistant', data.answer, data.context_used);
                 
             } catch (error) {
                 showError(`Error: ${error.message}`);
@@ -460,17 +527,44 @@
             }
         });
 
-        // Display response with markdown rendering
-        function displayResponse(data) {
-            // Render markdown
-            const htmlContent = marked.parse(data.answer);
-            elements.answerText.innerHTML = htmlContent;
+        // Add message to chat
+        function addMessage(role, content, context = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
             
-            // Pretty print JSON with syntax highlighting
-            elements.contextData.innerHTML = syntaxHighlight(JSON.stringify(data.context_used, null, 2));
+            const roleLabel = role === 'user' ? '👤 You' : '🤖 FarmBot';
             
-            elements.responseContent.classList.add('active');
+            let html = `<div class="message-role">${roleLabel}</div>`;
+            
+            if (role === 'assistant') {
+                html += `<div class="message-content">${marked.parse(content)}</div>`;
+                
+                if (context) {
+                    const contextId = `context-${Date.now()}`;
+                    html += `
+                        <button class="context-toggle" onclick="toggleContext('${contextId}')">Show Context</button>
+                        <div class="context-data" id="${contextId}">${syntaxHighlight(JSON.stringify(context, null, 2))}</div>
+                    `;
+                }
+            } else {
+                html += `<div class="message-content">${content}</div>`;
+            }
+            
+            messageDiv.innerHTML = html;
+            
+            if (elements.messagesArea.querySelector('p[style*="text-align: center"]')) {
+                elements.messagesArea.innerHTML = '';
+            }
+            
+            elements.messagesArea.appendChild(messageDiv);
+            elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
         }
+
+        // Toggle context visibility
+        window.toggleContext = function(contextId) {
+            const contextDiv = document.getElementById(contextId);
+            contextDiv.classList.toggle('active');
+        };
 
         // JSON syntax highlighting
         function syntaxHighlight(json) {
@@ -492,12 +586,6 @@
             });
         }
 
-        // Toggle context view
-        elements.contextToggle.addEventListener('click', () => {
-            const isActive = elements.contextData.classList.toggle('active');
-            elements.contextToggle.textContent = isActive ? 'Hide Context Data' : 'Show Context Data';
-        });
-
         // Error handling
         function showError(message) {
             elements.error.textContent = message;
@@ -508,7 +596,7 @@
             elements.error.classList.remove('active');
         }
 
-        // Enter to submit
+        // Keyboard shortcuts
         elements.query.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
                 elements.askBtn.click();

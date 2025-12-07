@@ -1,3 +1,4 @@
+# app/services/ai_service.py
 import json
 import httpx
 from app.core.config import OPENROUTER_KEYS, OPENWEATHER_API_KEY
@@ -5,20 +6,23 @@ from app.services.location_service import LocationService
 from app.services.weather_service import WeatherService
 from app.services.sensor_service import get_latest_sensor_data
 from app.services.soil_service import get_soil_physical
+from app.services.conversation_service import ConversationService
 
 
 # -----------------------------
-# SYSTEM PROMPT (Nova tuned)
+# SYSTEM PROMPT (Nova tuned with memory)
 # -----------------------------
 SYSTEM_PROMPT = """
 You are FarmBot Nova — an agricultural assistant for Indian farming conditions.
 Your job:
 - use ONLY the <context> data given
+- remember previous conversations with the user
 - avoid assumptions or hallucinations
 - give short, practical, actionable farming advice
 - keep answers simple enough for farmers
 - consider soil, weather, texture, location, and sensor data
 - if data is missing, say it clearly
+- be friendly and remember user details they've shared (like their name, crops, location preferences)
 
 Answer in clear bullet points unless asked otherwise.
 """
@@ -44,10 +48,11 @@ Your answer:
 # -----------------------------
 # OpenRouter fallback logic (FIXED)
 # -----------------------------
-async def call_openrouter(payload):
+async def call_openrouter(messages: list):
     """
     Async version using httpx instead of requests.
     Properly handles OpenRouter API with correct headers.
+    Now accepts full message array including history.
     """
     
     for i, key in enumerate(OPENROUTER_KEYS):
@@ -63,7 +68,10 @@ async def call_openrouter(payload):
                         "HTTP-Referer": "https://farmbot.com",
                         "X-Title": "FarmBot Nova"
                     },
-                    json=payload
+                    json={
+                        "model": "amazon/nova-2-lite-v1:free",
+                        "messages": messages
+                    }
                 )
 
                 if response.status_code == 200:
@@ -80,12 +88,19 @@ async def call_openrouter(payload):
 
 
 # -----------------------------
-# Main API: process AI query
+# Main API: process AI query with memory
 # -----------------------------
-async def process_ai_query(query: str, lat: float = None, lon: float = None):
+async def process_ai_query(
+    query: str,
+    auth_id: str,
+    conversation_id: str,
+    lat: float = None,
+    lon: float = None
+):
     # Initialize services
     location_service = LocationService()
     weather_service = WeatherService(api_key=OPENWEATHER_API_KEY)
+    conversation_service = ConversationService()
     sensor = None
     
     # 1️⃣ Get location (lat, lon)
@@ -136,22 +151,47 @@ async def process_ai_query(query: str, lat: float = None, lon: float = None):
     else:
         full_context["sensor_available"] = False
 
-    # 5️⃣ Build prompt for Nova
-    prompt = build_prompt(query, full_context)
+    # 5️⃣ Get conversation history
+    history = await conversation_service.get_conversation_history(conversation_id, limit=20)
+    formatted_history = conversation_service.format_history_for_ai(history)
 
-    # 6️⃣ Prepare OpenRouter payload
-    payload = {
-        "model": "amazon/nova-2-lite-v1:free",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
-    }
+    # 6️⃣ Build messages array with history
+    prompt = build_prompt(query, full_context)
+    
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT}
+    ]
+    
+    # Add conversation history
+    messages.extend(formatted_history)
+    
+    # Add current user query
+    messages.append({"role": "user", "content": prompt})
 
     # 7️⃣ Call Nova 2 Lite (with fallback)
-    ai_response = await call_openrouter(payload)
+    ai_response = await call_openrouter(messages)
+    answer = ai_response["choices"][0]["message"]["content"]
+
+    # 8️⃣ Save conversation to database
+    await conversation_service.save_message(
+        auth_id=auth_id,
+        conversation_id=conversation_id,
+        role="user",
+        content=query,
+        metadata={"coordinates": {"lat": lat, "lon": lon}}
+    )
+    
+    await conversation_service.save_message(
+        auth_id=auth_id,
+        conversation_id=conversation_id,
+        role="assistant",
+        content=answer,
+        metadata={"context_used": full_context}
+    )
 
     return {
-        "answer": ai_response["choices"][0]["message"]["content"],
-        "context_used": full_context
+        "answer": answer,
+        "context_used": full_context,
+        "conversation_id": conversation_id,
+        "message_count": len(history) + 2  # +2 for current exchange
     }
