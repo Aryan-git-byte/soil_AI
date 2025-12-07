@@ -1,0 +1,90 @@
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+*.pklz
+*.so
+*.egg-info/
+*.egg
+
+# Virtual Environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# -----------------------------
+# FastAPI / Uvicorn
+# -----------------------------
+*.log
+logs/
+uvicorn.log
+
+# -----------------------------
+# OS / Editor Files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# PyCharm
+.idea/
+*.iml
+
+# -----------------------------
+# Environment & Secrets
+# -----------------------------
+.env
+.env.*
+*.secret
+*.key
+
+# -----------------------------
+# Build & Distribution
+# -----------------------------
+build/
+dist/
+pip-wheel-metadata/
+*.spec
+
+# -----------------------------
+# Cache
+# -----------------------------
+.cache/
+**/__pycache__/
+
+# -----------------------------
+# Dependencies
+# -----------------------------
+*.sqlite3
+*.db
+*.bak
+
+# -----------------------------
+# Testing
+# -----------------------------
+.coverage
+htmlcov/
+.coverage.*
+.pytest_cache/
+
+# -----------------------------
+# Ignore Uploaded Files
+# -----------------------------
+uploads/
+media/
+files/
+temp/
+tmp/
