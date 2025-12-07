@@ -1,6 +1,10 @@
 # app/services/ai_service.py
 import json
 import httpx
+import base64
+from typing import Optional
+from fastapi import UploadFile
+
 from app.core.config import OPENROUTER_KEYS, OPENWEATHER_API_KEY
 from app.services.location_service import LocationService
 from app.services.weather_service import WeatherService
@@ -25,6 +29,7 @@ Your job:
 - mention the soil type (Alluvial, Black/Regur, Red & Yellow, Laterite, etc.) when giving advice
 - if data is missing, say it clearly
 - be friendly and remember user details they've shared (like their name, crops, location preferences)
+- if an image is provided, analyze it thoroughly for diseases, pests, health issues, or other problems
 
 Answer in clear bullet points unless asked otherwise.
 """
@@ -33,9 +38,25 @@ Answer in clear bullet points unless asked otherwise.
 # -----------------------------
 # Build the final AI prompt
 # -----------------------------
-def build_prompt(query: str, full_context: dict):
+def build_prompt(query: str, full_context: dict, has_image: bool = False):
     ctx = json.dumps(full_context, indent=2)
-    return f"""
+    
+    if has_image:
+        return f"""
+<context>
+{ctx}
+</context>
+
+User uploaded an image and asks:
+{query}
+
+Analyze the image carefully and provide detailed insights based on what you see.
+Consider the context data (location, weather, soil) when giving recommendations.
+
+Your answer:
+"""
+    else:
+        return f"""
 <context>
 {ctx}
 </context>
@@ -48,20 +69,26 @@ Your answer:
 
 
 # -----------------------------
-# OpenRouter fallback logic (FIXED)
+# Encode image to base64
+# -----------------------------
+def encode_image_to_base64(image_bytes: bytes) -> str:
+    return base64.b64encode(image_bytes).decode('utf-8')
+
+
+# -----------------------------
+# OpenRouter fallback logic
 # -----------------------------
 async def call_openrouter(messages: list):
     """
-    Async version using httpx instead of requests.
-    Properly handles OpenRouter API with correct headers.
-    Now accepts full message array including history.
+    Async version using httpx.
+    Handles both text and vision (image) queries.
     """
     
     for i, key in enumerate(OPENROUTER_KEYS):
         try:
             print(f"[OpenRouter] Trying key {i+1}/{len(OPENROUTER_KEYS)}...")
             
-            async with httpx.AsyncClient(timeout=40.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={
@@ -90,14 +117,15 @@ async def call_openrouter(messages: list):
 
 
 # -----------------------------
-# Main API: process AI query with memory
+# Main API: process AI query with optional image
 # -----------------------------
 async def process_ai_query(
     query: str,
     auth_id: str,
     conversation_id: str,
     lat: float = None,
-    lon: float = None
+    lon: float = None,
+    image: Optional[UploadFile] = None  # 🆕 Optional image parameter
 ):
     # Initialize services
     location_service = LocationService()
@@ -170,8 +198,25 @@ async def process_ai_query(
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
 
-    # 6️⃣ Build messages array with history
-    prompt = build_prompt(query, full_context)
+    # 6️⃣ Process image if provided
+    has_image = image is not None
+    image_metadata = None
+    
+    if has_image:
+        # Read and encode image
+        image_bytes = await image.read()
+        image_base64 = encode_image_to_base64(image_bytes)
+        media_type = image.content_type
+        
+        image_metadata = {
+            "filename": image.filename,
+            "content_type": media_type,
+            "size": len(image_bytes)
+        }
+        print(f"[Image] Processing: {image.filename} ({len(image_bytes)} bytes)")
+
+    # 7️⃣ Build messages array with history
+    prompt = build_prompt(query, full_context, has_image)
     
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT}
@@ -180,20 +225,43 @@ async def process_ai_query(
     # Add conversation history
     messages.extend(formatted_history)
     
-    # Add current user query
-    messages.append({"role": "user", "content": prompt})
+    # Add current user query (with or without image)
+    if has_image:
+        messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_type};base64,{image_base64}"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+        })
+    else:
+        messages.append({"role": "user", "content": prompt})
 
-    # 7️⃣ Call Nova 2 Lite (with fallback)
+    # 8️⃣ Call Nova 2 Lite (with fallback)
     ai_response = await call_openrouter(messages)
     answer = ai_response["choices"][0]["message"]["content"]
 
-    # 8️⃣ Save conversation to database
+    # 9️⃣ Save conversation to database
+    user_metadata = {
+        "coordinates": {"lat": lat, "lon": lon}
+    }
+    if has_image:
+        user_metadata["image"] = image_metadata
+    
     await conversation_service.save_message(
         auth_id=auth_id,
         conversation_id=conversation_id,
         role="user",
         content=query,
-        metadata={"coordinates": {"lat": lat, "lon": lon}}
+        metadata=user_metadata
     )
     
     await conversation_service.save_message(
@@ -201,12 +269,16 @@ async def process_ai_query(
         conversation_id=conversation_id,
         role="assistant",
         content=answer,
-        metadata={"context_used": full_context}
+        metadata={
+            "context_used": full_context,
+            "had_image": has_image
+        }
     )
 
     return {
         "answer": answer,
         "context_used": full_context,
         "conversation_id": conversation_id,
-        "message_count": len(history) + 2  # +2 for current exchange
+        "message_count": len(history) + 2,  # +2 for current exchange
+        "had_image": has_image
     }

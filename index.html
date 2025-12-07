@@ -551,7 +551,7 @@
             elements.imageUploadSection.classList.remove('active');
         });
 
-        // Send message
+        // Send message - UNIFIED ENDPOINT
         elements.askBtn.addEventListener('click', async () => {
             const query = elements.query.value.trim();
             
@@ -576,63 +576,45 @@
             elements.askBtn.disabled = true;
 
             try {
-                let data;
+                // 🌟 UNIFIED ENDPOINT - Always use /api/ai/ask
+                const formData = new FormData();
+                formData.append('query', query);
+                formData.append('auth_id', currentAuthId);
                 
-                // If image is attached, use image analysis endpoint
+                if (currentConvId) {
+                    formData.append('conversation_id', currentConvId);
+                }
+                
+                const lat = elements.latitude.value.trim();
+                const lon = elements.longitude.value.trim();
+                
+                if (lat && lon) {
+                    formData.append('lat', lat);
+                    formData.append('lon', lon);
+                }
+                
+                // Add image if attached (optional)
                 if (selectedImage) {
-                    const formData = new FormData();
-                    formData.append('file', selectedImage);
-                    formData.append('query', query);
-                    formData.append('auth_id', currentAuthId);
-                    
-                    if (currentConvId) {
-                        formData.append('conversation_id', currentConvId);
-                    }
-                    
-                    const response = await fetch(`${API_BASE}/api/image/analyze`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                    }
-                    
-                    data = await response.json();
-                    data.answer = data.analysis; // Normalize response format
-                    
-                    // Clear image after sending
+                    formData.append('image', selectedImage);
+                }
+
+                const response = await fetch(`${API_BASE}/api/ai/ask`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+
+                const data = await response.json();
+                
+                // Clear image after sending (if there was one)
+                if (selectedImage) {
                     selectedImage = null;
                     elements.imageInput.value = '';
                     elements.imagePreviewContainer.style.display = 'none';
                     elements.imageUploadSection.classList.remove('active');
-                    
-                } else {
-                    // Regular text query
-                    const params = new URLSearchParams({
-                        query,
-                        auth_id: currentAuthId
-                    });
-                    
-                    if (currentConvId) {
-                        params.append('conversation_id', currentConvId);
-                    }
-                    
-                    const lat = elements.latitude.value.trim();
-                    const lon = elements.longitude.value.trim();
-                    
-                    if (lat && lon) {
-                        params.append('lat', lat);
-                        params.append('lon', lon);
-                    }
-
-                    const response = await fetch(`${API_BASE}/api/ai/ask?${params}`);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                    }
-
-                    data = await response.json();
                 }
                 
                 // Update conversation ID if it was a new conversation

@@ -1,39 +1,66 @@
-from fastapi import APIRouter, Query, Header
+# app/routers/ai.py
+from fastapi import APIRouter, Query, File, UploadFile, Form
 from app.services.ai_service import process_ai_query
 from app.services.conversation_service import ConversationService
+from typing import Optional
 import uuid
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
 
-@router.get("/ask")
+
+@router.post("/ask")
 async def ai_ask(
-    query: str = Query(..., description="Agricultural question or query"),
-    auth_id: str = Query(..., description="User authentication ID"),
-    conversation_id: str = Query(None, description="Conversation ID (optional, will create new if not provided)"),
-    lat: float = Query(None, description="Optional latitude (overrides latest sensor)"),
-    lon: float = Query(None, description="Optional longitude (overrides latest sensor)")
+    query: str = Form(..., description="Agricultural question or image description"),
+    auth_id: str = Form(..., description="User authentication ID"),
+    conversation_id: str = Form(None, description="Conversation ID (optional)"),
+    lat: float = Form(None, description="Optional latitude (overrides latest sensor)"),
+    lon: float = Form(None, description="Optional longitude (overrides latest sensor)"),
+    image: UploadFile = File(None, description="Optional image for analysis")
 ):
     """
-    GET /api/ai/ask?query=<question>&auth_id=<user_id>&conversation_id=<optional>&lat=<optional>&lon=<optional>
+    🌟 UNIFIED ENDPOINT: Handles both text-only and image+text queries
     
-    Fetches sensor data + location context, retrieves conversation history,
-    then asks Nova 2 Lite for insights with full context awareness.
+    POST /api/ai/ask (multipart/form-data)
     
-    - auth_id: User identifier (required) - used to track user across conversations
-    - conversation_id: Optional - if not provided, creates a new conversation
-    - Each conversation_id maintains separate context
+    Features:
+    - Text-only questions: Send query without image
+    - Image analysis: Send query + image file
+    - Mixed mode: "What's wrong with this plant?" + image
+    - Conversation memory: Maintains full chat history
+    - Context awareness: Includes sensor, weather, soil, location
+    
+    Example Usage:
+    
+    Text-only:
+        FormData = { query: "Best crops for clay soil?", auth_id: "user123" }
+    
+    With image:
+        FormData = { 
+            query: "Identify this disease", 
+            auth_id: "user123",
+            image: [file]
+        }
+    
+    Follow-up:
+        FormData = { 
+            query: "How do I treat it?", 
+            auth_id: "user123",
+            conversation_id: "conv_abc123"  // Same conversation
+        }
     """
     
     # Generate new conversation_id if not provided
     if not conversation_id:
         conversation_id = f"conv_{auth_id}_{uuid.uuid4().hex[:8]}"
     
+    # Pass everything to unified service
     return await process_ai_query(
         query=query,
         auth_id=auth_id,
         conversation_id=conversation_id,
         lat=lat,
-        lon=lon
+        lon=lon,
+        image=image  # Can be None for text-only
     )
 
 
