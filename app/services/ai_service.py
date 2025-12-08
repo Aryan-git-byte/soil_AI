@@ -11,6 +11,7 @@ from app.services.weather_service import WeatherService
 from app.services.sensor_service import get_latest_sensor_data
 from app.services.soil_service import get_soil_physical, classify_indian_soil_type
 from app.services.conversation_service import ConversationService
+from app.services.rag_service import search_knowledge, format_context
 
 
 # -----------------------------
@@ -197,6 +198,24 @@ async def process_ai_query(
     # 5️⃣ Get conversation history
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
+
+    # 5.1️⃣ RAG vector search (knowledge base retrieval)
+    # Run MiniLM embedding + vector search from Supabase
+    try:
+        rag_chunks = search_knowledge(query, top_k=8)
+        rag_context_text = format_context(rag_chunks)
+        full_context["rag_chunks"] = rag_chunks  # save raw results for debugging
+    except Exception as e:
+        print(f"[RAG ERROR] {e}")
+        rag_context_text = ""
+        full_context["rag_chunks"] = None
+
+    # 5.2️⃣ If RAG returned chunks, attach them to prompt context
+    if rag_context_text:
+        full_context["retrieved_knowledge"] = rag_context_text
+    else:
+        full_context["retrieved_knowledge"] = "No relevant chunks found."
+
 
     # 6️⃣ Process image if provided
     has_image = image is not None
