@@ -67,41 +67,69 @@ async def search_tavily(
     query: str,
     max_results: int = 5,
     search_depth: str = "basic",
-    include_domains: Optional[List[str]] = None
+    include_domains: Optional[List[str]] = None,
+    exclude_domains: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """Tavily web search integration"""
     if not TAVILY_API_KEY:
         print("[TAVILY] API key missing")
         return []
 
-    # Agricultural domains priority
-    ag_domains = [
-        "icar.gov.in",
-        "agricoop.gov.in", 
-        "kvk.org.in",
-        "tnau.ac.in",
-        "agritech.tnau.ac.in"
-    ]
+    # Detect query type for better search
+    query_lower = query.lower()
+    is_location_query = any(word in query_lower for word in ["near", "nearby", "kvk", "location", "find", "where"])
+    is_recent_query = any(word in query_lower for word in ["latest", "recent", "new", "current", "today", "2024", "2025"])
     
-    domains = include_domains or ag_domains
+    # Adjust search parameters based on query type
+    if is_location_query:
+        search_depth = "advanced"  # Better for specific searches
+        domains = None  # Don't restrict domains for location searches
+    elif is_recent_query:
+        search_depth = "advanced"
+        domains = include_domains
+    else:
+        # Agricultural domains priority
+        ag_domains = [
+            "icar.gov.in",
+            "agricoop.gov.in", 
+            "kvk.org.in",
+        ]
+        domains = include_domains or ag_domains
+    
+    # Exclude PDFs and irrelevant results
+    pdf_domains = ["*.pdf", "agritech.tnau.ac.in/pdf/*"]
+    exclude = exclude_domains or pdf_domains
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
+            payload = {
+                "api_key": TAVILY_API_KEY,
+                "query": query,
+                "search_depth": search_depth,
+                "max_results": max_results,
+                "include_answer": True
+            }
+            
+            # Only add domain filters if specified
+            if domains:
+                payload["include_domains"] = domains
+            
             response = await client.post(
                 "https://api.tavily.com/search",
-                json={
-                    "api_key": TAVILY_API_KEY,
-                    "query": query,
-                    "search_depth": search_depth,
-                    "max_results": max_results,
-                    "include_domains": domains,
-                    "include_answer": True
-                }
+                json=payload
             )
             
             if response.status_code == 200:
                 data = response.json()
-                return data.get("results", [])
+                results = data.get("results", [])
+                
+                # Filter out PDF results manually
+                filtered = [
+                    r for r in results 
+                    if not r.get("url", "").endswith(".pdf")
+                ]
+                
+                return filtered
             else:
                 print(f"[TAVILY] Error {response.status_code}")
                 return []
@@ -124,23 +152,39 @@ async def hybrid_search(
     # Local RAG search
     rag_results = search_knowledge(query, top_k_rag, crop, region)
     
-    # Web search conditions
+    # Enhanced web search detection
+    query_lower = query.lower()
+    location_keywords = ["near", "nearby", "kvk", "location", "find", "where", "search"]
+    time_keywords = ["latest", "recent", "current", "new", "today", "2024", "2025"]
+    
     needs_web = (
         force_web or
-        len(rag_results) < 3 or
-        any(word in query.lower() for word in ["latest", "recent", "current", "new", "today"])
+        len(rag_results) < 2 or  # Lowered threshold
+        any(word in query_lower for word in time_keywords) or
+        any(word in query_lower for word in location_keywords)
     )
     
     web_results = []
+    tavily_answer = None
+    
     if needs_web:
-        web_results = await search_tavily(query, top_k_web)
+        # Enhance query for better results
+        enhanced_query = query
+        if any(word in query_lower for word in location_keywords):
+            # Add context for location queries
+            if region:
+                enhanced_query = f"{query} {region} India"
+        
+        web_data = await search_tavily(enhanced_query, top_k_web)
+        web_results = web_data
     
     return {
         "rag_chunks": rag_results,
         "web_results": web_results,
         "rag_count": len(rag_results),
         "web_count": len(web_results),
-        "used_web": needs_web
+        "used_web": needs_web,
+        "query_enhanced": needs_web
     }
 
 

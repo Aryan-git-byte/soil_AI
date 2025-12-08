@@ -186,10 +186,20 @@ async def process_ai_query(
         crop = location_context.get("indian_soil_classification", {}).get("indian_soil_type")
         region = location_context.get("location_info", {}).get("state")
         
+        # Enhance query with location context for better results
+        enhanced_query = query
+        query_lower = query.lower()
+        
+        # Add location context for specific queries
+        if any(word in query_lower for word in ["near", "nearby", "kvk", "find", "search"]):
+            city = location_context.get("location_info", {}).get("city")
+            if city and region:
+                enhanced_query = f"{query} in {city}, {region}"
+        
         hybrid_results = await hybrid_search(
-            query=query,
+            query=enhanced_query,
             top_k_rag=8,
-            top_k_web=3,
+            top_k_web=5,  # Increased for location queries
             crop=crop,
             region=region
         )
@@ -198,7 +208,8 @@ async def process_ai_query(
         full_context["knowledge_retrieval"] = {
             "rag_chunks_count": hybrid_results["rag_count"],
             "web_results_count": hybrid_results["web_count"],
-            "used_web_search": hybrid_results["used_web"]
+            "used_web_search": hybrid_results["used_web"],
+            "query_enhanced": enhanced_query if enhanced_query != query else None
         }
     except Exception as e:
         print(f"[RAG ERROR] {e}")
