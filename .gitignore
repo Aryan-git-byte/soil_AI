@@ -92,3 +92,9 @@ tmp/
 # Ignore raw PDFs
 knowledge_pipeline/sources/*.pdf
 knowledge_pipeline/archive/**/*.pdf
+
+# supabase
+.supabase/  
+supabase/.temp/
+supabase/.local/
+supabase/
