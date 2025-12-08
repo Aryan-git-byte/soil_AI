@@ -16,18 +16,9 @@ async def analyze_image(
     query: str = Form("Analyze this image"),
     include_context: bool = Form(True)
 ):
-    """
-    Upload an image and get AI-powered analysis.
     
-    Args:
-        file: Image file (jpg, png, webp)
-        query: User's question about the image
-        include_context: Whether to attach sensor + location context automatically
-    """
 
-    # -------------------------
-    # 1️⃣ Validate image
-    # -------------------------
+    # Validate image
     content_type = file.content_type
     size = file.size or 0
 
@@ -35,15 +26,11 @@ async def analyze_image(
     if not is_valid:
         return JSONResponse(status_code=400, content={"error": error})
 
-    # -------------------------
-    # 2️⃣ Read + encode image
-    # -------------------------
+    # Read + encode image
     image_bytes = await file.read()
     image_base64 = ImageAnalysisService.encode_image_to_base64(image_bytes)
 
-    # -------------------------
-    # 3️⃣ Build optional context
-    # -------------------------
+    # Build optional context
     extra_context: Optional[Dict] = None
 
     if include_context:
@@ -59,9 +46,7 @@ async def analyze_image(
                 "sensor_data": sensor
             }
 
-    # -------------------------
-    # 4️⃣ Analyze via Vision Model
-    # -------------------------
+    # Analyze via Vision Model
     result = await ImageAnalysisService.analyze_image(
         image_base64=image_base64,
         media_type=content_type,
