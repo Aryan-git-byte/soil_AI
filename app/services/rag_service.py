@@ -2,20 +2,28 @@ import os
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
-from supabase import create_client, Client
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 import httpx
 
 load_dotenv()
 
 # Environment variables
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "farmbot_knowledge")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError("Missing SUPABASE_URL or SUPABASE_KEY")
+if not QDRANT_URL or not QDRANT_API_KEY:
+    raise RuntimeError("Missing QDRANT_URL or QDRANT_API_KEY")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Initialize Qdrant client
+print(f"[RAG] Connecting to Qdrant at {QDRANT_URL}...")
+qdrant_client = QdrantClient(
+    url=QDRANT_URL,
+    api_key=QDRANT_API_KEY,
+    timeout=60
+)
 
 print("[RAG] Loading MiniLM model...")
 _model = SentenceTransformer(
@@ -39,27 +47,66 @@ def search_knowledge(
     region: Optional[str] = None,
     similarity_threshold: float = 0.5
 ) -> List[Dict[str, Any]]:
-    """Vector search in knowledge base"""
+    """Vector search in Qdrant knowledge base"""
     embedding = embed_query(query)
     if not embedding:
         return []
 
-    payload = {
-        "query_embedding": embedding,
-        "match_count": top_k * 2,  # Get more, filter later
-        "filter_crop": crop,
-        "filter_region": region,
-    }
-
     try:
-        resp = supabase.rpc("match_knowledge_chunks", payload).execute()
-        rows = getattr(resp, "data", []) or []
+        # Build filter conditions
+        filter_conditions = []
         
-        # Filter by similarity threshold
-        filtered = [r for r in rows if r.get("similarity", 0) >= similarity_threshold]
-        return filtered[:top_k]
+        if crop:
+            filter_conditions.append(
+                FieldCondition(
+                    key="crop",
+                    match=MatchValue(value=crop)
+                )
+            )
+        
+        if region:
+            filter_conditions.append(
+                FieldCondition(
+                    key="region",
+                    match=MatchValue(value=region)
+                )
+            )
+        
+        # Create filter object if we have conditions
+        query_filter = None
+        if filter_conditions:
+            query_filter = Filter(must=filter_conditions)
+        
+        # Search in Qdrant using query_points
+        search_result = qdrant_client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=embedding,
+            limit=top_k * 2,  # Get more, filter later
+            query_filter=query_filter,
+            score_threshold=similarity_threshold
+        )
+        
+        # Convert Qdrant results to our format
+        results = []
+        for hit in search_result.points:
+            result = {
+                "id": hit.id,
+                "similarity": hit.score,
+                "source": hit.payload.get("source"),
+                "crop": hit.payload.get("crop"),
+                "region": hit.payload.get("region"),
+                "section": hit.payload.get("section"),
+                "text": hit.payload.get("text")
+            }
+            results.append(result)
+        
+        # Already filtered by score_threshold, just limit to top_k
+        return results[:top_k]
+        
     except Exception as e:
         print(f"[RAG ERROR] {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -149,7 +196,7 @@ async def hybrid_search(
 ) -> Dict[str, Any]:
     """Combined RAG + Tavily search"""
     
-    # Local RAG search
+    # Local RAG search with Qdrant
     rag_results = search_knowledge(query, top_k_rag, crop, region)
     
     # Enhanced web search detection
