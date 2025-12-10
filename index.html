@@ -239,6 +239,115 @@
             border: 2px solid #333;
         }
 
+        /* RAG Info Styling */
+        .rag-info {
+            background: #1a2a1a;
+            border: 1px solid #2a4a2a;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 0.85rem;
+        }
+
+        .rag-info-header {
+            color: #6fc276;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rag-badge {
+            background: #2a4a2a;
+            color: #6fc276;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .rag-sources {
+            margin-top: 8px;
+        }
+
+        .rag-source-item {
+            background: #0f1f0f;
+            border-left: 3px solid #4fc3f7;
+            padding: 8px;
+            margin: 6px 0;
+            border-radius: 4px;
+        }
+
+        .rag-source-header {
+            color: #6fc276;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .rag-source-meta {
+            color: #888;
+            font-size: 0.75rem;
+            margin-bottom: 4px;
+        }
+
+        .rag-source-text {
+            color: #aaa;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+
+        .web-source-item {
+            background: #1a1a2a;
+            border-left: 3px solid #f7a14f;
+            padding: 8px;
+            margin: 6px 0;
+            border-radius: 4px;
+        }
+
+        .web-source-header {
+            color: #f7a14f;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .web-source-url {
+            color: #4fc3f7;
+            font-size: 0.75rem;
+            margin-bottom: 4px;
+            text-decoration: none;
+        }
+
+        .web-source-url:hover {
+            text-decoration: underline;
+        }
+
+        .rag-toggle {
+            background: #2a4a2a;
+            color: #6fc276;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-top: 8px;
+        }
+
+        .rag-toggle:hover {
+            background: #3a5a3a;
+        }
+
+        .rag-details {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background: #0f1f0f;
+            border-radius: 5px;
+        }
+
+        .rag-details.active {
+            display: block;
+        }
+
         /* Markdown styling */
         .message-content h1, .message-content h2, .message-content h3, 
         .message-content h4, .message-content h5, .message-content h6 {
@@ -551,7 +660,7 @@
             elements.imageUploadSection.classList.remove('active');
         });
 
-        // Send message - UNIFIED ENDPOINT
+        // Send message
         elements.askBtn.addEventListener('click', async () => {
             const query = elements.query.value.trim();
             
@@ -576,7 +685,6 @@
             elements.askBtn.disabled = true;
 
             try {
-                // 🌟 UNIFIED ENDPOINT - Always use /api/ai/ask
                 const formData = new FormData();
                 formData.append('query', query);
                 formData.append('auth_id', currentAuthId);
@@ -593,7 +701,6 @@
                     formData.append('lon', lon);
                 }
                 
-                // Add image if attached (optional)
                 if (selectedImage) {
                     formData.append('image', selectedImage);
                 }
@@ -609,7 +716,6 @@
 
                 const data = await response.json();
                 
-                // Clear image after sending (if there was one)
                 if (selectedImage) {
                     selectedImage = null;
                     elements.imageInput.value = '';
@@ -617,19 +723,17 @@
                     elements.imageUploadSection.classList.remove('active');
                 }
                 
-                // Update conversation ID if it was a new conversation
                 if (!currentConvId) {
                     currentConvId = data.conversation_id;
                     elements.displayConvId.textContent = currentConvId;
                 }
                 
-                // Update message count
                 if (data.message_count) {
                     elements.messageCount.textContent = data.message_count;
                 }
                 
-                // Add assistant response to UI
-                addMessage('assistant', data.answer, data.context_used);
+                // Add assistant response with RAG info
+                addMessage('assistant', data.answer, data.context_used, null, data.rag_info);
                 
             } catch (error) {
                 showError(`Error: ${error.message}`);
@@ -639,8 +743,8 @@
             }
         });
 
-        // Add message to chat
-        function addMessage(role, content, context = null, imageUrl = null) {
+        // Add message to chat with RAG info
+        function addMessage(role, content, context = null, imageUrl = null, ragInfo = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
             
@@ -651,10 +755,15 @@
             if (role === 'assistant') {
                 html += `<div class="message-content">${marked.parse(content)}</div>`;
                 
+                // Add RAG info if available
+                if (ragInfo && ragInfo.success) {
+                    html += createRagInfoHTML(ragInfo);
+                }
+                
                 if (context) {
                     const contextId = `context-${Date.now()}`;
                     html += `
-                        <button class="context-toggle" onclick="toggleContext('${contextId}')">Show Context</button>
+                        <button class="context-toggle" onclick="toggleContext('${contextId}')">Show Full Context</button>
                         <div class="context-data" id="${contextId}">${syntaxHighlight(JSON.stringify(context, null, 2))}</div>
                     `;
                 }
@@ -673,6 +782,53 @@
             
             elements.messagesArea.appendChild(messageDiv);
             elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
+        }
+
+        // Create RAG info HTML
+        function createRagInfoHTML(ragInfo) {
+            let html = '<div class="rag-info">';
+            
+            // Header with badges
+            html += '<div class="rag-info-header">';
+            html += '🔍 Knowledge Sources';
+            html += `<span class="rag-badge">RAG: ${ragInfo.rag_chunks_count}</span>`;
+            if (ragInfo.used_web_search) {
+                html += `<span class="rag-badge">Web: ${ragInfo.web_results_count}</span>`;
+            }
+            html += '</div>';
+            
+            // RAG sources
+            if (ragInfo.rag_sources && ragInfo.rag_sources.length > 0) {
+                html += '<div class="rag-sources">';
+                ragInfo.rag_sources.forEach((source, idx) => {
+                    html += `<div class="rag-source-item">`;
+                    html += `<div class="rag-source-header">📚 ${source.source || 'Knowledge Base'}</div>`;
+                    html += `<div class="rag-source-meta">`;
+                    if (source.crop) html += `Crop: ${source.crop} | `;
+                    if (source.region) html += `Region: ${source.region} | `;
+                    html += `Relevance: ${(source.similarity * 100).toFixed(1)}%`;
+                    html += `</div>`;
+                    html += `<div class="rag-source-text">${source.text_preview}</div>`;
+                    html += `</div>`;
+                });
+                html += '</div>';
+            }
+            
+            // Web sources
+            if (ragInfo.web_sources && ragInfo.web_sources.length > 0) {
+                html += '<div class="rag-sources">';
+                ragInfo.web_sources.forEach((source, idx) => {
+                    html += `<div class="web-source-item">`;
+                    html += `<div class="web-source-header">🌐 ${source.title}</div>`;
+                    html += `<a href="${source.url}" target="_blank" class="web-source-url">${source.url}</a>`;
+                    html += `<div class="rag-source-text">${source.content_preview}</div>`;
+                    html += `</div>`;
+                });
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            return html;
         }
 
         // Toggle context visibility

@@ -18,14 +18,14 @@ if not QDRANT_URL or not QDRANT_API_KEY:
     raise RuntimeError("Missing QDRANT_URL or QDRANT_API_KEY")
 
 # Initialize Qdrant client
-print(f"[RAG] Connecting to Qdrant at {QDRANT_URL}...")
+print(f"[RAG INIT] Connecting to Qdrant at {QDRANT_URL}...")
 qdrant_client = QdrantClient(
     url=QDRANT_URL,
     api_key=QDRANT_API_KEY,
     timeout=60
 )
 
-print("[RAG] Loading MiniLM model...")
+print("[RAG INIT] Loading MiniLM model...")
 _model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2",
     device="cpu"
@@ -36,7 +36,9 @@ def embed_query(text: str) -> list[float]:
     """Generate query embedding"""
     if not text:
         return []
+    print(f"[RAG EMBED] Generating embedding for: '{text[:50]}...'")
     vec = _model.encode(text, show_progress_bar=False)
+    print(f"[RAG EMBED] ✓ Generated {len(vec)}-dim vector")
     return vec.tolist()
 
 
@@ -45,11 +47,21 @@ def search_knowledge(
     top_k: int = 8,
     crop: Optional[str] = None,
     region: Optional[str] = None,
-    similarity_threshold: float = 0.5
+    similarity_threshold: float = 0.3  # LOWERED from 0.5
 ) -> List[Dict[str, Any]]:
-    """Vector search in Qdrant knowledge base"""
+    """Vector search in Qdrant knowledge base with detailed logging"""
+    print("\n" + "="*80)
+    print(f"[RAG SEARCH] Starting vector search")
+    print(f"[RAG SEARCH] Query: '{query}'")
+    print(f"[RAG SEARCH] Top K: {top_k}")
+    print(f"[RAG SEARCH] Similarity threshold: {similarity_threshold}")
+    print(f"[RAG SEARCH] Crop filter: {crop or 'None'}")
+    print(f"[RAG SEARCH] Region filter: {region or 'None'}")
+    print("="*80)
+    
     embedding = embed_query(query)
     if not embedding:
+        print("[RAG SEARCH] ✗ Failed to generate embedding")
         return []
 
     try:
@@ -63,6 +75,7 @@ def search_knowledge(
                     match=MatchValue(value=crop)
                 )
             )
+            print(f"[RAG FILTER] Added crop filter: {crop}")
         
         if region:
             filter_conditions.append(
@@ -71,11 +84,17 @@ def search_knowledge(
                     match=MatchValue(value=region)
                 )
             )
+            print(f"[RAG FILTER] Added region filter: {region}")
         
         # Create filter object if we have conditions
         query_filter = None
         if filter_conditions:
             query_filter = Filter(must=filter_conditions)
+            print(f"[RAG FILTER] Applied {len(filter_conditions)} filter(s)")
+        else:
+            print("[RAG FILTER] No filters applied (searching all documents)")
+        
+        print(f"[RAG SEARCH] Querying Qdrant collection: {COLLECTION_NAME}")
         
         # Search in Qdrant using query_points
         search_result = qdrant_client.query_points(
@@ -86,9 +105,11 @@ def search_knowledge(
             score_threshold=similarity_threshold
         )
         
+        print(f"[RAG SEARCH] ✓ Qdrant returned {len(search_result.points)} points")
+        
         # Convert Qdrant results to our format
         results = []
-        for hit in search_result.points:
+        for idx, hit in enumerate(search_result.points):
             result = {
                 "id": hit.id,
                 "similarity": hit.score,
@@ -99,12 +120,26 @@ def search_knowledge(
                 "text": hit.payload.get("text")
             }
             results.append(result)
+            
+            # Detailed logging for each result
+            print(f"\n[RAG RESULT #{idx+1}]")
+            print(f"  Similarity: {hit.score:.4f}")
+            print(f"  Source: {result['source']}")
+            print(f"  Crop: {result['crop']}")
+            print(f"  Region: {result['region']}")
+            print(f"  Section: {result['section']}")
+            print(f"  Text preview: {result['text'][:100]}...")
         
-        # Already filtered by score_threshold, just limit to top_k
-        return results[:top_k]
+        # Filter by threshold and limit
+        filtered_results = results[:top_k]
+        
+        print(f"\n[RAG SEARCH] ✓ Returning {len(filtered_results)} results (after filtering)")
+        print("="*80 + "\n")
+        
+        return filtered_results
         
     except Exception as e:
-        print(f"[RAG ERROR] {e}")
+        print(f"[RAG ERROR] ✗ Search failed: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -117,9 +152,16 @@ async def search_tavily(
     include_domains: Optional[List[str]] = None,
     exclude_domains: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
-    """Tavily web search integration"""
+    """Tavily web search integration with detailed logging"""
+    print("\n" + "="*80)
+    print(f"[TAVILY SEARCH] Starting web search")
+    print(f"[TAVILY SEARCH] Query: '{query}'")
+    print(f"[TAVILY SEARCH] Max results: {max_results}")
+    print(f"[TAVILY SEARCH] Search depth: {search_depth}")
+    print("="*80)
+    
     if not TAVILY_API_KEY:
-        print("[TAVILY] API key missing")
+        print("[TAVILY] ✗ API key missing")
         return []
 
     # Detect query type for better search
@@ -127,23 +169,28 @@ async def search_tavily(
     is_location_query = any(word in query_lower for word in ["near", "nearby", "kvk", "location", "find", "where"])
     is_recent_query = any(word in query_lower for word in ["latest", "recent", "new", "current", "today", "2024", "2025"])
     
+    print(f"[TAVILY] Location query: {is_location_query}")
+    print(f"[TAVILY] Recent query: {is_recent_query}")
+    
     # Adjust search parameters based on query type
     if is_location_query:
-        search_depth = "advanced"  # Better for specific searches
-        domains = None  # Don't restrict domains for location searches
+        search_depth = "advanced"
+        domains = None
+        print("[TAVILY] Using advanced search for location query")
     elif is_recent_query:
         search_depth = "advanced"
         domains = include_domains
+        print("[TAVILY] Using advanced search for recent query")
     else:
-        # Agricultural domains priority
         ag_domains = [
             "icar.gov.in",
             "agricoop.gov.in", 
             "kvk.org.in",
         ]
         domains = include_domains or ag_domains
+        print(f"[TAVILY] Using agricultural domains: {domains}")
     
-    # Exclude PDFs and irrelevant results
+    # Exclude PDFs
     pdf_domains = ["*.pdf", "agritech.tnau.ac.in/pdf/*"]
     exclude = exclude_domains or pdf_domains
 
@@ -157,9 +204,10 @@ async def search_tavily(
                 "include_answer": True
             }
             
-            # Only add domain filters if specified
             if domains:
                 payload["include_domains"] = domains
+            
+            print(f"[TAVILY] Sending request to Tavily API...")
             
             response = await client.post(
                 "https://api.tavily.com/search",
@@ -170,19 +218,34 @@ async def search_tavily(
                 data = response.json()
                 results = data.get("results", [])
                 
-                # Filter out PDF results manually
+                print(f"[TAVILY] ✓ Received {len(results)} results")
+                
+                # Filter out PDFs
                 filtered = [
                     r for r in results 
                     if not r.get("url", "").endswith(".pdf")
                 ]
                 
+                print(f"[TAVILY] ✓ After PDF filter: {len(filtered)} results")
+                
+                # Log each result
+                for idx, result in enumerate(filtered):
+                    print(f"\n[TAVILY RESULT #{idx+1}]")
+                    print(f"  Title: {result.get('title', 'N/A')}")
+                    print(f"  URL: {result.get('url', 'N/A')}")
+                    print(f"  Content preview: {result.get('content', '')[:100]}...")
+                
+                print("="*80 + "\n")
                 return filtered
             else:
-                print(f"[TAVILY] Error {response.status_code}")
+                print(f"[TAVILY] ✗ Error {response.status_code}")
+                print(f"[TAVILY] Response: {response.text[:200]}")
                 return []
                 
     except Exception as e:
-        print(f"[TAVILY ERROR] {e}")
+        print(f"[TAVILY ERROR] ✗ {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -194,9 +257,17 @@ async def hybrid_search(
     region: Optional[str] = None,
     force_web: bool = False
 ) -> Dict[str, Any]:
-    """Combined RAG + Tavily search"""
+    """Combined RAG + Tavily search with detailed decision logging"""
+    
+    print("\n" + "#"*80)
+    print(f"[HYBRID SEARCH] Starting hybrid search pipeline")
+    print(f"[HYBRID SEARCH] Query: '{query}'")
+    print(f"[HYBRID SEARCH] RAG top_k: {top_k_rag}, Web top_k: {top_k_web}")
+    print(f"[HYBRID SEARCH] Force web: {force_web}")
+    print("#"*80 + "\n")
     
     # Local RAG search with Qdrant
+    print("[HYBRID] Phase 1: RAG Search")
     rag_results = search_knowledge(query, top_k_rag, crop, region)
     
     # Enhanced web search detection
@@ -204,35 +275,63 @@ async def hybrid_search(
     location_keywords = ["near", "nearby", "kvk", "location", "find", "where", "search"]
     time_keywords = ["latest", "recent", "current", "new", "today", "2024", "2025"]
     
+    has_location_keyword = any(word in query_lower for word in location_keywords)
+    has_time_keyword = any(word in query_lower for word in time_keywords)
+    
+    print(f"\n[HYBRID DECISION] RAG results count: {len(rag_results)}")
+    print(f"[HYBRID DECISION] Force web: {force_web}")
+    print(f"[HYBRID DECISION] Has location keyword: {has_location_keyword}")
+    print(f"[HYBRID DECISION] Has time keyword: {has_time_keyword}")
+    print(f"[HYBRID DECISION] RAG results below threshold: {len(rag_results) < 3}")
+    
     needs_web = (
         force_web or
-        len(rag_results) < 2 or  # Lowered threshold
-        any(word in query_lower for word in time_keywords) or
-        any(word in query_lower for word in location_keywords)
+        len(rag_results) < 3 or  # Increased from 2
+        has_time_keyword or
+        has_location_keyword
     )
     
+    print(f"[HYBRID DECISION] → Web search needed: {needs_web}")
+    
     web_results = []
-    tavily_answer = None
     
     if needs_web:
+        print("\n[HYBRID] Phase 2: Web Search")
+        
         # Enhance query for better results
         enhanced_query = query
-        if any(word in query_lower for word in location_keywords):
-            # Add context for location queries
-            if region:
-                enhanced_query = f"{query} {region} India"
+        if has_location_keyword and region:
+            enhanced_query = f"{query} {region} India"
+            print(f"[HYBRID] Enhanced query: '{enhanced_query}'")
         
         web_data = await search_tavily(enhanced_query, top_k_web)
         web_results = web_data
+    else:
+        print("\n[HYBRID] Phase 2: Skipping web search (RAG sufficient)")
     
-    return {
+    result = {
         "rag_chunks": rag_results,
         "web_results": web_results,
         "rag_count": len(rag_results),
         "web_count": len(web_results),
         "used_web": needs_web,
-        "query_enhanced": needs_web
+        "query_enhanced": needs_web,
+        "search_decision": {
+            "force_web": force_web,
+            "rag_count": len(rag_results),
+            "has_location_keyword": has_location_keyword,
+            "has_time_keyword": has_time_keyword,
+            "decided_web": needs_web
+        }
     }
+    
+    print(f"\n[HYBRID COMPLETE] Final stats:")
+    print(f"  RAG chunks: {result['rag_count']}")
+    print(f"  Web results: {result['web_count']}")
+    print(f"  Used web: {result['used_web']}")
+    print("#"*80 + "\n")
+    
+    return result
 
 
 def format_context(chunks: List[Dict[str, Any]]) -> str:
@@ -249,6 +348,8 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
             header_parts.append(f"Region: {c['region']}")
         if c.get("source"):
             header_parts.append(f"Source: {c['source']}")
+        if c.get("similarity"):
+            header_parts.append(f"Relevance: {c['similarity']:.2%}")
 
         header = " | ".join(header_parts) if header_parts else "Source chunk"
 

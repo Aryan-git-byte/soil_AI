@@ -1,4 +1,4 @@
-# AI service with hybrid RAG search
+# Enhanced AI service with RAG visibility
 import json
 import httpx
 import base64
@@ -26,6 +26,8 @@ Your job:
 - be friendly and remember user details
 - analyze images for diseases, pests, health issues
 
+When you cite knowledge from the retrieved sources, mention the source briefly (e.g., "According to ICAR wheat guide...").
+
 Answer in clear bullet points unless asked otherwise.
 """
 
@@ -43,7 +45,7 @@ def build_prompt(query: str, full_context: dict, has_image: bool = False):
 User uploaded an image and asks:
 {query}
 
-Analyze the image carefully and provide detailed insights.
+Analyze the image carefully and provide detailed insights. If you reference information from the retrieved knowledge, cite the source.
 
 Your answer:
 """
@@ -56,7 +58,7 @@ Your answer:
 User Question:
 {query}
 
-Your answer:
+Your answer (cite sources when using retrieved knowledge):
 """
 
 
@@ -108,7 +110,7 @@ async def process_ai_query(
     lon: float = None,
     image: Optional[UploadFile] = None
 ):
-    """Main AI query processor"""
+    """Main AI query processor with enhanced RAG visibility"""
     
     # Initialize services
     location_service = LocationService()
@@ -180,7 +182,14 @@ async def process_ai_query(
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
 
-    # Hybrid RAG + Tavily search
+    # Hybrid RAG + Tavily search with enhanced logging
+    rag_info = {
+        "success": False,
+        "rag_chunks": [],
+        "web_results": [],
+        "error": None
+    }
+    
     try:
         # Extract crop/region from context
         crop = location_context.get("indian_soil_classification", {}).get("indian_soil_type")
@@ -196,27 +205,59 @@ async def process_ai_query(
             if city and region:
                 enhanced_query = f"{query} in {city}, {region}"
         
+        print(f"\n[AI SERVICE] Starting RAG search for: '{enhanced_query}'")
+        
         hybrid_results = await hybrid_search(
             query=enhanced_query,
             top_k_rag=8,
-            top_k_web=5,  # Increased for location queries
+            top_k_web=5,
             crop=crop,
             region=region
         )
         
         rag_context_text = format_hybrid_context(hybrid_results)
-        full_context["knowledge_retrieval"] = {
+        
+        # Enhanced RAG info for frontend
+        rag_info = {
+            "success": True,
             "rag_chunks_count": hybrid_results["rag_count"],
             "web_results_count": hybrid_results["web_count"],
             "used_web_search": hybrid_results["used_web"],
-            "query_enhanced": enhanced_query if enhanced_query != query else None
+            "query_enhanced": enhanced_query if enhanced_query != query else None,
+            "search_decision": hybrid_results.get("search_decision"),
+            "rag_sources": [
+                {
+                    "source": chunk.get("source"),
+                    "crop": chunk.get("crop"),
+                    "region": chunk.get("region"),
+                    "similarity": round(chunk.get("similarity", 0), 4),
+                    "text_preview": chunk.get("text", "")[:150] + "..."
+                }
+                for chunk in hybrid_results["rag_chunks"][:5]  # Top 5 for frontend
+            ],
+            "web_sources": [
+                {
+                    "title": result.get("title"),
+                    "url": result.get("url"),
+                    "content_preview": result.get("content", "")[:150] + "..."
+                }
+                for result in hybrid_results["web_results"][:3]  # Top 3 for frontend
+            ]
         }
+        
+        print(f"[AI SERVICE] ✓ RAG search completed successfully")
+        print(f"[AI SERVICE] RAG chunks: {rag_info['rag_chunks_count']}, Web results: {rag_info['web_results_count']}")
+        
     except Exception as e:
-        print(f"[RAG ERROR] {e}")
+        print(f"[AI SERVICE] ✗ RAG ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         rag_context_text = ""
-        full_context["knowledge_retrieval"] = None
+        rag_info["error"] = str(e)
 
     # Attach retrieved knowledge
+    full_context["knowledge_retrieval"] = rag_info
+    
     if rag_context_text:
         full_context["retrieved_knowledge"] = rag_context_text
     else:
@@ -292,7 +333,7 @@ async def process_ai_query(
         role="assistant",
         content=answer,
         metadata={
-            "context_used": full_context,
+            "rag_info": rag_info,
             "had_image": has_image
         }
     )
@@ -302,5 +343,6 @@ async def process_ai_query(
         "context_used": full_context,
         "conversation_id": conversation_id,
         "message_count": len(history) + 2,
-        "had_image": has_image
+        "had_image": has_image,
+        "rag_info": rag_info  # NEW: Expose RAG info to frontend
     }
