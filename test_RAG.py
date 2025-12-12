@@ -1,4 +1,4 @@
-# RAG Diagnostic Script - Run this to check your setup
+# RAG Diagnostic Script - Fixed Version
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -48,15 +48,13 @@ try:
         timeout=60
     )
     
-    # Get collection info
+    # ✅ FIXED: Get collection info correctly
     collection_info = qdrant.get_collection(COLLECTION_NAME)
     points_count = collection_info.points_count
-    vectors_count = collection_info.vectors_count
     
     print(f"✓ Connected to Qdrant successfully!")
     print(f"✓ Collection: {COLLECTION_NAME}")
     print(f"✓ Total points: {points_count:,}")
-    print(f"✓ Total vectors: {vectors_count:,}")
     
     if points_count == 0:
         print("⚠️  WARNING: Collection is empty! No knowledge chunks found.")
@@ -65,6 +63,8 @@ try:
 except Exception as e:
     print(f"✗ Failed to connect to Qdrant: {e}")
     print("   → Check your QDRANT_URL and QDRANT_API_KEY")
+    import traceback
+    traceback.print_exc()
 
 # Check embedding model
 print("\n[3] Testing Embedding Model...")
@@ -109,9 +109,11 @@ try:
         if results:
             print(f"✓ Found {len(results)} results")
             for i, result in enumerate(results, 1):
-                print(f"  [{i}] Similarity: {result['similarity']:.4f} | Source: {result['source']}")
+                sim = result.get('similarity', 0)
+                src = result.get('source', 'Unknown')
+                print(f"  [{i}] Similarity: {sim:.4f} | Source: {src}")
         else:
-            print(f"✗ No results found (this might indicate an issue)")
+            print(f"⚠️  No results found (try lowering threshold)")
     
 except Exception as e:
     print(f"✗ RAG search failed: {e}")
@@ -134,10 +136,12 @@ async def test_tavily():
             for i, result in enumerate(results, 1):
                 print(f"  [{i}] {result.get('title', 'No title')}")
         else:
-            print(f"✗ No results from Tavily (check API key or quota)")
+            print(f"⚠️  No results from Tavily (check API key or quota)")
     
     except Exception as e:
         print(f"✗ Tavily search failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 asyncio.run(test_tavily())
 
@@ -182,12 +186,12 @@ print("   1. Empty collection → Run knowledge pipeline scripts")
 print("   2. No Tavily results → Check API key and quota")
 print("   3. Low similarity scores → Lower threshold or improve data quality")
 print("   4. Connection errors → Check URLs and API keys in .env")
+print("   5. Missing 'text' field → Data ingestion issue, re-run pipeline")
 
 print("\n📖 Next Steps:")
-print("   1. Replace app/services/rag_service.py with enhanced version")
-print("   2. Replace app/services/ai_service.py with enhanced version")
-print("   3. Replace index.html with enhanced frontend")
-print("   4. Restart FastAPI server")
-print("   5. Test queries and check console logs for detailed RAG info")
+print("   1. Fix data ingestion (see Fix #2 below)")
+print("   2. Update rag_service.py (see Fix #3)")
+print("   3. Restart FastAPI server")
+print("   4. Test queries and check console logs")
 
 print("\n" + "="*80)
