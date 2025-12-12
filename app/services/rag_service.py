@@ -3,7 +3,6 @@ from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue
 import httpx
 
 load_dotenv()
@@ -45,18 +44,15 @@ def embed_query(text: str) -> list[float]:
 def search_knowledge(
     query: str,
     top_k: int = 8,
-    crop: Optional[str] = None,
-    region: Optional[str] = None,
-    similarity_threshold: float = 0.3  # LOWERED from 0.5
+    similarity_threshold: float = 0.25  # LOWERED from 0.3 for better recall
 ) -> List[Dict[str, Any]]:
-    """Vector search in Qdrant knowledge base with detailed logging"""
+    """Pure vector search in Qdrant knowledge base - NO FILTERS"""
     print("\n" + "="*80)
-    print(f"[RAG SEARCH] Starting vector search")
+    print(f"[RAG SEARCH] Starting pure vector search")
     print(f"[RAG SEARCH] Query: '{query}'")
     print(f"[RAG SEARCH] Top K: {top_k}")
     print(f"[RAG SEARCH] Similarity threshold: {similarity_threshold}")
-    print(f"[RAG SEARCH] Crop filter: {crop or 'None'}")
-    print(f"[RAG SEARCH] Region filter: {region or 'None'}")
+    print(f"[RAG SEARCH] Filters: NONE (pure semantic search)")
     print("="*80)
     
     embedding = embed_query(query)
@@ -65,43 +61,13 @@ def search_knowledge(
         return []
 
     try:
-        # Build filter conditions
-        filter_conditions = []
-        
-        if crop:
-            filter_conditions.append(
-                FieldCondition(
-                    key="crop",
-                    match=MatchValue(value=crop)
-                )
-            )
-            print(f"[RAG FILTER] Added crop filter: {crop}")
-        
-        if region:
-            filter_conditions.append(
-                FieldCondition(
-                    key="region",
-                    match=MatchValue(value=region)
-                )
-            )
-            print(f"[RAG FILTER] Added region filter: {region}")
-        
-        # Create filter object if we have conditions
-        query_filter = None
-        if filter_conditions:
-            query_filter = Filter(must=filter_conditions)
-            print(f"[RAG FILTER] Applied {len(filter_conditions)} filter(s)")
-        else:
-            print("[RAG FILTER] No filters applied (searching all documents)")
-        
         print(f"[RAG SEARCH] Querying Qdrant collection: {COLLECTION_NAME}")
         
-        # Search in Qdrant using query_points
+        # Pure vector search - NO FILTERS!
         search_result = qdrant_client.query_points(
             collection_name=COLLECTION_NAME,
             query=embedding,
-            limit=top_k * 2,  # Get more, filter later
-            query_filter=query_filter,
+            limit=top_k * 2,  # Get more, filter later by threshold
             score_threshold=similarity_threshold
         )
         
@@ -114,8 +80,8 @@ def search_knowledge(
                 "id": hit.id,
                 "similarity": hit.score,
                 "source": hit.payload.get("source"),
-                "crop": hit.payload.get("crop"),
-                "region": hit.payload.get("region"),
+                "crop": hit.payload.get("crop"),  # May be None
+                "region": hit.payload.get("region"),  # May be None
                 "section": hit.payload.get("section"),
                 "text": hit.payload.get("text")
             }
@@ -125,15 +91,18 @@ def search_knowledge(
             print(f"\n[RAG RESULT #{idx+1}]")
             print(f"  Similarity: {hit.score:.4f}")
             print(f"  Source: {result['source']}")
-            print(f"  Crop: {result['crop']}")
-            print(f"  Region: {result['region']}")
-            print(f"  Section: {result['section']}")
+            if result['crop']:
+                print(f"  Crop: {result['crop']}")
+            if result['region']:
+                print(f"  Region: {result['region']}")
+            if result['section']:
+                print(f"  Section: {result['section']}")
             print(f"  Text preview: {result['text'][:100]}...")
         
         # Filter by threshold and limit
         filtered_results = results[:top_k]
         
-        print(f"\n[RAG SEARCH] ✓ Returning {len(filtered_results)} results (after filtering)")
+        print(f"\n[RAG SEARCH] ✓ Returning {len(filtered_results)} results")
         print("="*80 + "\n")
         
         return filtered_results
@@ -251,13 +220,11 @@ async def search_tavily(
 
 async def hybrid_search(
     query: str,
-    top_k_rag: int = 5,
-    top_k_web: int = 3,
-    crop: Optional[str] = None,
-    region: Optional[str] = None,
+    top_k_rag: int = 8,
+    top_k_web: int = 5,
     force_web: bool = False
 ) -> Dict[str, Any]:
-    """Combined RAG + Tavily search with detailed decision logging"""
+    """Combined RAG + Tavily search - NO CROP/REGION FILTERS"""
     
     print("\n" + "#"*80)
     print(f"[HYBRID SEARCH] Starting hybrid search pipeline")
@@ -266,9 +233,9 @@ async def hybrid_search(
     print(f"[HYBRID SEARCH] Force web: {force_web}")
     print("#"*80 + "\n")
     
-    # Local RAG search with Qdrant
-    print("[HYBRID] Phase 1: RAG Search")
-    rag_results = search_knowledge(query, top_k_rag, crop, region)
+    # Pure vector search - NO FILTERS!
+    print("[HYBRID] Phase 1: RAG Search (Pure Vector)")
+    rag_results = search_knowledge(query, top_k_rag)
     
     # Enhanced web search detection
     query_lower = query.lower()
@@ -286,7 +253,7 @@ async def hybrid_search(
     
     needs_web = (
         force_web or
-        len(rag_results) < 3 or  # Increased from 2
+        len(rag_results) < 3 or
         has_time_keyword or
         has_location_keyword
     )
@@ -297,14 +264,7 @@ async def hybrid_search(
     
     if needs_web:
         print("\n[HYBRID] Phase 2: Web Search")
-        
-        # Enhance query for better results
-        enhanced_query = query
-        if has_location_keyword and region:
-            enhanced_query = f"{query} {region} India"
-            print(f"[HYBRID] Enhanced query: '{enhanced_query}'")
-        
-        web_data = await search_tavily(enhanced_query, top_k_web)
+        web_data = await search_tavily(query, top_k_web)
         web_results = web_data
     else:
         print("\n[HYBRID] Phase 2: Skipping web search (RAG sufficient)")
@@ -315,7 +275,7 @@ async def hybrid_search(
         "rag_count": len(rag_results),
         "web_count": len(web_results),
         "used_web": needs_web,
-        "query_enhanced": needs_web,
+        "query_enhanced": False,  # No query enhancement needed without filters
         "search_decision": {
             "force_web": force_web,
             "rag_count": len(rag_results),

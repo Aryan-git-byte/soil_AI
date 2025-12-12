@@ -1,4 +1,4 @@
-# Enhanced AI service with RAG visibility
+# Enhanced AI service with RAG visibility - NO CROP/REGION FILTERING
 import json
 import httpx
 import base64
@@ -110,7 +110,7 @@ async def process_ai_query(
     lon: float = None,
     image: Optional[UploadFile] = None
 ):
-    """Main AI query processor with enhanced RAG visibility"""
+    """Main AI query processor with pure vector search RAG"""
     
     # Initialize services
     location_service = LocationService()
@@ -182,7 +182,7 @@ async def process_ai_query(
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
 
-    # Hybrid RAG + Tavily search with enhanced logging
+    # Hybrid RAG search - NO CROP/REGION FILTERING!
     rag_info = {
         "success": False,
         "rag_chunks": [],
@@ -191,28 +191,13 @@ async def process_ai_query(
     }
     
     try:
-        # Extract crop/region from context
-        crop = location_context.get("indian_soil_classification", {}).get("indian_soil_type")
-        region = location_context.get("location_info", {}).get("state")
+        print(f"\n[AI SERVICE] Starting RAG search for: '{query}'")
         
-        # Enhance query with location context for better results
-        enhanced_query = query
-        query_lower = query.lower()
-        
-        # Add location context for specific queries
-        if any(word in query_lower for word in ["near", "nearby", "kvk", "find", "search"]):
-            city = location_context.get("location_info", {}).get("city")
-            if city and region:
-                enhanced_query = f"{query} in {city}, {region}"
-        
-        print(f"\n[AI SERVICE] Starting RAG search for: '{enhanced_query}'")
-        
+        # Pure vector search - no crop/region params!
         hybrid_results = await hybrid_search(
-            query=enhanced_query,
+            query=query,
             top_k_rag=8,
-            top_k_web=5,
-            crop=crop,
-            region=region
+            top_k_web=5
         )
         
         rag_context_text = format_hybrid_context(hybrid_results)
@@ -223,7 +208,6 @@ async def process_ai_query(
             "rag_chunks_count": hybrid_results["rag_count"],
             "web_results_count": hybrid_results["web_count"],
             "used_web_search": hybrid_results["used_web"],
-            "query_enhanced": enhanced_query if enhanced_query != query else None,
             "search_decision": hybrid_results.get("search_decision"),
             "rag_sources": [
                 {
@@ -344,5 +328,5 @@ async def process_ai_query(
         "conversation_id": conversation_id,
         "message_count": len(history) + 2,
         "had_image": has_image,
-        "rag_info": rag_info  # NEW: Expose RAG info to frontend
+        "rag_info": rag_info
     }
