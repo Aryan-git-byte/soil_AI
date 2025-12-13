@@ -85,21 +85,19 @@ PORT=${PORT:-8000}
 # For higher plans: workers = 2 * CPU_cores + 1
 WORKERS=${WORKERS:-1}
 
-# ✅ PRODUCTION-GRADE SERVER CONFIGURATION
+# ✅ MEMORY-OPTIMIZED CONFIGURATION FOR FREE TIER
 exec gunicorn app.main:app \
     --worker-class uvicorn.workers.UvicornWorker \
-    --workers $WORKERS \
+    --workers 1 \
+    --worker-tmp-dir /dev/shm \
     --bind 0.0.0.0:$PORT \
-    --max-requests 1000 \
-    --max-requests-jitter 50 \
-    --timeout 30 \
+    --max-requests 500 \
+    --timeout 60 \
     --graceful-timeout 30 \
     --preload \
-    --log-level info \
+    --log-level warning \
     --access-logfile - \
-    --error-logfile - \
-    --capture-output \
-    --enable-stdio-inheritance
+    --error-logfile -
 
 # Explanation of flags:
 # --worker-class: Use Uvicorn workers for async support

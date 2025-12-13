@@ -43,9 +43,14 @@ except Exception as e:
 logger.info("Loading embedding model...")
 try:
     _model = SentenceTransformer(
-        "sentence-transformers/all-MiniLM-L6-v2",
-        device="cpu"
-    )
+    "sentence-transformers/all-MiniLM-L6-v2",
+    device="cpu"
+)
+# ✅ Use half precision to save 50% memory
+    import torch
+    if hasattr(_model, 'half'):
+        _model = _model.half()
+    
     logger.info("✓ Embedding model loaded successfully")
 except Exception as e:
     logger.error(f"❌ Failed to load embedding model: {e}")
