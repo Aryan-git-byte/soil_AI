@@ -1,22 +1,54 @@
-# app/services/soil_service.py
+# app/services/soil_service.py - Production Ready
 import rasterio
+import os
+import logging
 from rasterio.windows import Window
 
-# ----------------------------
-# FILE PATHS (update for your PC)
-# ----------------------------
-SAND_FILE = r"D:\Downloads\Soil-Data\sand.wfraction_usda.3a1a1a_m_250m_b0cm_19500101_20171231_go_epsg.4326_v0.2.tif"
-CLAY_FILE = r"D:\Downloads\Soil-Data\sol_clay.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
-SILT_FILE = r"D:\Downloads\Soil-Data\sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
-TEXTURE_FILE = r"D:\Downloads\Soil-Data\sol_texture.class_usda.tt_m_250m_b0..0cm_1950..2017_v0.2.tif"
+logger = logging.getLogger(__name__)
+
+# ✅ PRODUCTION: Load file paths from environment variables
+SAND_FILE = os.getenv("SOIL_SAND_FILE")
+CLAY_FILE = os.getenv("SOIL_CLAY_FILE")
+SILT_FILE = os.getenv("SOIL_SILT_FILE")
+TEXTURE_FILE = os.getenv("SOIL_TEXTURE_FILE")
+
+# Validate that all files are configured
+REQUIRED_FILES = {
+    "SOIL_SAND_FILE": SAND_FILE,
+    "SOIL_CLAY_FILE": CLAY_FILE,
+    "SOIL_SILT_FILE": SILT_FILE,
+    "SOIL_TEXTURE_FILE": TEXTURE_FILE
+}
+
+missing_files = [name for name, path in REQUIRED_FILES.items() if not path]
+
+if missing_files:
+    logger.error(f"❌ Missing soil data file paths: {', '.join(missing_files)}")
+    logger.error("Set these in .env file:")
+    for name in missing_files:
+        logger.error(f"  {name}=/path/to/file.tif")
+    raise RuntimeError("Soil data files not configured. Check logs for details.")
+
+# Validate that files exist
+for name, path in REQUIRED_FILES.items():
+    if not os.path.exists(path):
+        logger.error(f"❌ Soil data file not found: {name}={path}")
+        raise FileNotFoundError(f"Soil data file not found: {path}")
+
+logger.info("✓ All soil data files configured and found")
 
 # ----------------------------
 # LOAD DATASETS ONCE
 # ----------------------------
-sand_ds = rasterio.open(SAND_FILE)
-clay_ds = rasterio.open(CLAY_FILE)
-silt_ds = rasterio.open(SILT_FILE)
-texture_ds = rasterio.open(TEXTURE_FILE)
+try:
+    sand_ds = rasterio.open(SAND_FILE)
+    clay_ds = rasterio.open(CLAY_FILE)
+    silt_ds = rasterio.open(SILT_FILE)
+    texture_ds = rasterio.open(TEXTURE_FILE)
+    logger.info("✓ Soil datasets loaded successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to load soil datasets: {e}")
+    raise
 
 # ----------------------------
 # USDA Texture Class Mapping
@@ -35,41 +67,65 @@ TEXTURE_MAP = {
     11: "Sand"
 }
 
+
 # ----------------------------
 # READ 1 PIXEL SAFELY
 # ----------------------------
 def get_pixel(ds, lat, lon):
-    row, col = ds.index(lon, lat)
-    window = Window(col, row, 1, 1)
-    value = ds.read(1, window=window)[0, 0]
+    """Extract pixel value from raster dataset"""
+    try:
+        row, col = ds.index(lon, lat)
+        window = Window(col, row, 1, 1)
+        value = ds.read(1, window=window)[0, 0]
 
-    if value == ds.nodata:
+        if value == ds.nodata:
+            return None
+        
+        return float(value)
+    except Exception as e:
+        logger.warning(f"Failed to get pixel at ({lat}, {lon}): {e}")
         return None
-    
-    return float(value)
+
 
 # ----------------------------
 # MAIN FUNCTION
 # ----------------------------
 def get_soil_physical(lat: float, lon: float):
-    sand = get_pixel(sand_ds, lat, lon)
-    clay = get_pixel(clay_ds, lat, lon)
-    silt = get_pixel(silt_ds, lat, lon)
-    texture_code = get_pixel(texture_ds, lat, lon)
-    texture = None
+    """
+    Get soil physical properties at given coordinates.
+    Returns dict with sand/clay/silt percentages and texture class.
+    """
     try:
-        texture = TEXTURE_MAP.get(int(texture_code), "Unknown") if texture_code is not None else "Unknown"
-    except Exception:
-        texture = "Unknown"
+        sand = get_pixel(sand_ds, lat, lon)
+        clay = get_pixel(clay_ds, lat, lon)
+        silt = get_pixel(silt_ds, lat, lon)
+        texture_code = get_pixel(texture_ds, lat, lon)
+        
+        texture = None
+        try:
+            texture = TEXTURE_MAP.get(int(texture_code), "Unknown") if texture_code is not None else "Unknown"
+        except Exception:
+            texture = "Unknown"
 
-    return {
-        "sand_percent": sand,
-        "clay_percent": clay,
-        "silt_percent": silt,
-        "texture": texture,
-        "depth_cm": "0-5",
-        "source": "OpenLandMap 250m (0–5 cm Depth)"
-    }
+        return {
+            "sand_percent": sand,
+            "clay_percent": clay,
+            "silt_percent": silt,
+            "texture": texture,
+            "depth_cm": "0-5",
+            "source": "OpenLandMap 250m (0–5 cm Depth)"
+        }
+    except Exception as e:
+        logger.error(f"Error getting soil data for ({lat}, {lon}): {e}")
+        return {
+            "sand_percent": None,
+            "clay_percent": None,
+            "silt_percent": None,
+            "texture": "Unknown",
+            "depth_cm": "0-5",
+            "source": "OpenLandMap 250m (0–5 cm Depth)",
+            "error": str(e)
+        }
 
 
 # ----------------------------
@@ -110,7 +166,6 @@ def classify_indian_soil_type(
     characteristics = []
     
     # Geographic regions (rough lat/lon boundaries)
-    # These are approximate and can be refined
     is_northern_plains = lat and 24 <= lat <= 30 and 75 <= lon <= 88
     is_deccan_plateau = lat and 15 <= lat <= 24 and 74 <= lon <= 81
     is_western_coast = lat and 8 <= lat <= 20 and 72 <= lon <= 77
@@ -238,7 +293,6 @@ def classify_indian_soil_type(
         ]
     
     # 7. SALINE & ALKALINE SOIL - Would need EC or pH data for accurate detection
-    # This is a fallback based on region
     elif is_northern_plains and clay_percent > 25:
         soil_type = "Potentially Saline/Alkaline Soil"
         confidence = "Low"

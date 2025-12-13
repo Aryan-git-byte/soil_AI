@@ -1,8 +1,32 @@
-dotenv
-fastapi
-requests
-uvicorn
-python-dotenv
-httpx
-supabase
-rasterio
+# ======================================
+# FARMBOT NOVA - PRODUCTION DEPENDENCIES
+# ======================================
+
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# HTTP Client
+httpx==0.26.0
+
+# Environment & Config
+python-dotenv==1.0.0
+
+# Database
+supabase==2.3.0
+
+# Geospatial Data
+rasterio==1.3.9
+
+# HTTP Requests
+requests==2.31.0
+
+# RAG & Embeddings
+sentence-transformers==2.3.1
+qdrant-client==1.7.3
+
+# PDF Processing
+pymupdf==1.23.8
+
+# Additional Dependencies
+tqdm==4.66.1

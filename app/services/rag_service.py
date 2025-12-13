@@ -1,4 +1,6 @@
+# app/services/rag_service.py - Production Ready
 import os
+import logging
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
@@ -7,110 +9,106 @@ import httpx
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 # Environment variables
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "farmbot_knowledge")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
+# Validate required environment variables
 if not QDRANT_URL or not QDRANT_API_KEY:
-    raise RuntimeError("Missing QDRANT_URL or QDRANT_API_KEY")
+    raise RuntimeError("❌ CRITICAL: QDRANT_URL and QDRANT_API_KEY must be set in environment")
+
+if not TAVILY_API_KEY:
+    logger.warning("⚠️ TAVILY_API_KEY not set. Web search will be disabled.")
 
 # Initialize Qdrant client
-print(f"[RAG INIT] Connecting to Qdrant at {QDRANT_URL}...")
-qdrant_client = QdrantClient(
-    url=QDRANT_URL,
-    api_key=QDRANT_API_KEY,
-    timeout=60
-)
+logger.info(f"Connecting to Qdrant at {QDRANT_URL}...")
+try:
+    qdrant_client = QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+        timeout=60
+    )
+    # Test connection
+    qdrant_client.get_collection(COLLECTION_NAME)
+    logger.info(f"✓ Connected to Qdrant collection: {COLLECTION_NAME}")
+except Exception as e:
+    logger.error(f"❌ Failed to connect to Qdrant: {e}")
+    raise
 
-print("[RAG INIT] Loading MiniLM model...")
-_model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2",
-    device="cpu"
-)
+# Load embedding model
+logger.info("Loading embedding model...")
+try:
+    _model = SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        device="cpu"
+    )
+    logger.info("✓ Embedding model loaded successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to load embedding model: {e}")
+    raise
 
 
 def embed_query(text: str) -> list[float]:
     """Generate query embedding"""
     if not text:
         return []
-    print(f"[RAG EMBED] Generating embedding for: '{text[:50]}...'")
-    vec = _model.encode(text, show_progress_bar=False)
-    print(f"[RAG EMBED] ✓ Generated {len(vec)}-dim vector")
-    return vec.tolist()
+    
+    try:
+        vec = _model.encode(text, show_progress_bar=False)
+        return vec.tolist()
+    except Exception as e:
+        logger.error(f"Failed to generate embedding: {e}")
+        return []
 
 
 def search_knowledge(
     query: str,
     top_k: int = 8,
-    similarity_threshold: float = 0.25  # LOWERED from 0.3 for better recall
+    similarity_threshold: float = 0.25
 ) -> List[Dict[str, Any]]:
     """Pure vector search in Qdrant knowledge base - NO FILTERS"""
-    print("\n" + "="*80)
-    print(f"[RAG SEARCH] Starting pure vector search")
-    print(f"[RAG SEARCH] Query: '{query}'")
-    print(f"[RAG SEARCH] Top K: {top_k}")
-    print(f"[RAG SEARCH] Similarity threshold: {similarity_threshold}")
-    print(f"[RAG SEARCH] Filters: NONE (pure semantic search)")
-    print("="*80)
+    logger.info(f"RAG search: '{query[:50]}...' (top_k={top_k}, threshold={similarity_threshold})")
     
     embedding = embed_query(query)
     if not embedding:
-        print("[RAG SEARCH] ✗ Failed to generate embedding")
+        logger.warning("Failed to generate embedding for query")
         return []
 
     try:
-        print(f"[RAG SEARCH] Querying Qdrant collection: {COLLECTION_NAME}")
-        
         # Pure vector search - NO FILTERS!
         search_result = qdrant_client.query_points(
             collection_name=COLLECTION_NAME,
             query=embedding,
-            limit=top_k * 2,  # Get more, filter later by threshold
+            limit=top_k * 2,
             score_threshold=similarity_threshold
         )
         
-        print(f"[RAG SEARCH] ✓ Qdrant returned {len(search_result.points)} points")
+        logger.info(f"Qdrant returned {len(search_result.points)} points")
         
         # Convert Qdrant results to our format
         results = []
-        for idx, hit in enumerate(search_result.points):
+        for hit in search_result.points:
             result = {
                 "id": hit.id,
                 "similarity": hit.score,
                 "source": hit.payload.get("source"),
-                "crop": hit.payload.get("crop"),  # May be None
-                "region": hit.payload.get("region"),  # May be None
+                "crop": hit.payload.get("crop"),
+                "region": hit.payload.get("region"),
                 "section": hit.payload.get("section"),
                 "text": hit.payload.get("text")
             }
             results.append(result)
-            
-            # Detailed logging for each result
-            print(f"\n[RAG RESULT #{idx+1}]")
-            print(f"  Similarity: {hit.score:.4f}")
-            print(f"  Source: {result['source']}")
-            if result['crop']:
-                print(f"  Crop: {result['crop']}")
-            if result['region']:
-                print(f"  Region: {result['region']}")
-            if result['section']:
-                print(f"  Section: {result['section']}")
-            print(f"  Text preview: {result['text'][:100]}...")
         
-        # Filter by threshold and limit
         filtered_results = results[:top_k]
-        
-        print(f"\n[RAG SEARCH] ✓ Returning {len(filtered_results)} results")
-        print("="*80 + "\n")
-        
+        logger.info(f"Returning {len(filtered_results)} RAG results")
         return filtered_results
         
     except Exception as e:
-        print(f"[RAG ERROR] ✗ Search failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"RAG search failed: {e}", exc_info=True)
         return []
 
 
@@ -121,35 +119,23 @@ async def search_tavily(
     include_domains: Optional[List[str]] = None,
     exclude_domains: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
-    """Tavily web search integration with detailed logging"""
-    print("\n" + "="*80)
-    print(f"[TAVILY SEARCH] Starting web search")
-    print(f"[TAVILY SEARCH] Query: '{query}'")
-    print(f"[TAVILY SEARCH] Max results: {max_results}")
-    print(f"[TAVILY SEARCH] Search depth: {search_depth}")
-    print("="*80)
+    """Tavily web search integration"""
     
     if not TAVILY_API_KEY:
-        print("[TAVILY] ✗ API key missing")
+        logger.warning("Tavily API key not configured, skipping web search")
         return []
-
+    
+    logger.info(f"Tavily search: '{query[:50]}...' (max_results={max_results})")
+    
     # Detect query type for better search
     query_lower = query.lower()
     is_location_query = any(word in query_lower for word in ["near", "nearby", "kvk", "location", "find", "where"])
     is_recent_query = any(word in query_lower for word in ["latest", "recent", "new", "current", "today", "2024", "2025"])
     
-    print(f"[TAVILY] Location query: {is_location_query}")
-    print(f"[TAVILY] Recent query: {is_recent_query}")
-    
-    # Adjust search parameters based on query type
-    if is_location_query:
+    # Adjust search parameters
+    if is_location_query or is_recent_query:
         search_depth = "advanced"
         domains = None
-        print("[TAVILY] Using advanced search for location query")
-    elif is_recent_query:
-        search_depth = "advanced"
-        domains = include_domains
-        print("[TAVILY] Using advanced search for recent query")
     else:
         ag_domains = [
             "icar.gov.in",
@@ -157,7 +143,6 @@ async def search_tavily(
             "kvk.org.in",
         ]
         domains = include_domains or ag_domains
-        print(f"[TAVILY] Using agricultural domains: {domains}")
     
     # Exclude PDFs
     pdf_domains = ["*.pdf", "agritech.tnau.ac.in/pdf/*"]
@@ -176,8 +161,6 @@ async def search_tavily(
             if domains:
                 payload["include_domains"] = domains
             
-            print(f"[TAVILY] Sending request to Tavily API...")
-            
             response = await client.post(
                 "https://api.tavily.com/search",
                 json=payload
@@ -187,34 +170,20 @@ async def search_tavily(
                 data = response.json()
                 results = data.get("results", [])
                 
-                print(f"[TAVILY] ✓ Received {len(results)} results")
-                
                 # Filter out PDFs
                 filtered = [
                     r for r in results 
                     if not r.get("url", "").endswith(".pdf")
                 ]
                 
-                print(f"[TAVILY] ✓ After PDF filter: {len(filtered)} results")
-                
-                # Log each result
-                for idx, result in enumerate(filtered):
-                    print(f"\n[TAVILY RESULT #{idx+1}]")
-                    print(f"  Title: {result.get('title', 'N/A')}")
-                    print(f"  URL: {result.get('url', 'N/A')}")
-                    print(f"  Content preview: {result.get('content', '')[:100]}...")
-                
-                print("="*80 + "\n")
+                logger.info(f"Tavily returned {len(filtered)} results")
                 return filtered
             else:
-                print(f"[TAVILY] ✗ Error {response.status_code}")
-                print(f"[TAVILY] Response: {response.text[:200]}")
+                logger.error(f"Tavily error {response.status_code}: {response.text[:200]}")
                 return []
                 
     except Exception as e:
-        print(f"[TAVILY ERROR] ✗ {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Tavily search failed: {e}", exc_info=True)
         return []
 
 
@@ -226,30 +195,18 @@ async def hybrid_search(
 ) -> Dict[str, Any]:
     """Combined RAG + Tavily search - NO CROP/REGION FILTERS"""
     
-    print("\n" + "#"*80)
-    print(f"[HYBRID SEARCH] Starting hybrid search pipeline")
-    print(f"[HYBRID SEARCH] Query: '{query}'")
-    print(f"[HYBRID SEARCH] RAG top_k: {top_k_rag}, Web top_k: {top_k_web}")
-    print(f"[HYBRID SEARCH] Force web: {force_web}")
-    print("#"*80 + "\n")
+    logger.info(f"Hybrid search: '{query[:50]}...'")
     
-    # Pure vector search - NO FILTERS!
-    print("[HYBRID] Phase 1: RAG Search (Pure Vector)")
+    # Phase 1: RAG Search
     rag_results = search_knowledge(query, top_k_rag)
     
-    # Enhanced web search detection
+    # Phase 2: Decide if web search is needed
     query_lower = query.lower()
     location_keywords = ["near", "nearby", "kvk", "location", "find", "where", "search"]
     time_keywords = ["latest", "recent", "current", "new", "today", "2024", "2025"]
     
     has_location_keyword = any(word in query_lower for word in location_keywords)
     has_time_keyword = any(word in query_lower for word in time_keywords)
-    
-    print(f"\n[HYBRID DECISION] RAG results count: {len(rag_results)}")
-    print(f"[HYBRID DECISION] Force web: {force_web}")
-    print(f"[HYBRID DECISION] Has location keyword: {has_location_keyword}")
-    print(f"[HYBRID DECISION] Has time keyword: {has_time_keyword}")
-    print(f"[HYBRID DECISION] RAG results below threshold: {len(rag_results) < 3}")
     
     needs_web = (
         force_web or
@@ -258,16 +215,12 @@ async def hybrid_search(
         has_location_keyword
     )
     
-    print(f"[HYBRID DECISION] → Web search needed: {needs_web}")
+    logger.info(f"Web search decision: needs_web={needs_web} (rag_count={len(rag_results)}, time={has_time_keyword}, location={has_location_keyword})")
     
     web_results = []
-    
     if needs_web:
-        print("\n[HYBRID] Phase 2: Web Search")
         web_data = await search_tavily(query, top_k_web)
         web_results = web_data
-    else:
-        print("\n[HYBRID] Phase 2: Skipping web search (RAG sufficient)")
     
     result = {
         "rag_chunks": rag_results,
@@ -275,7 +228,7 @@ async def hybrid_search(
         "rag_count": len(rag_results),
         "web_count": len(web_results),
         "used_web": needs_web,
-        "query_enhanced": False,  # No query enhancement needed without filters
+        "query_enhanced": False,
         "search_decision": {
             "force_web": force_web,
             "rag_count": len(rag_results),
@@ -285,12 +238,7 @@ async def hybrid_search(
         }
     }
     
-    print(f"\n[HYBRID COMPLETE] Final stats:")
-    print(f"  RAG chunks: {result['rag_count']}")
-    print(f"  Web results: {result['web_count']}")
-    print(f"  Used web: {result['used_web']}")
-    print("#"*80 + "\n")
-    
+    logger.info(f"Hybrid search complete: rag={result['rag_count']}, web={result['web_count']}")
     return result
 
 

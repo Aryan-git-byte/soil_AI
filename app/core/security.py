@@ -4,6 +4,8 @@ import secrets
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 load_dotenv()
 
@@ -19,11 +21,14 @@ VALID_API_KEYS = set(
     if key.strip()
 )
 
-# Add a default key for development (remove in production!)
-if not VALID_API_KEYS and os.getenv("ENVIRONMENT") == "development":
-    DEFAULT_KEY = "dev_test_key_12345"
-    VALID_API_KEYS.add(DEFAULT_KEY)
-    print(f"⚠️  WARNING: Using default API key for development: {DEFAULT_KEY}")
+# ✅ PRODUCTION: No default keys, fail if not configured
+if not VALID_API_KEYS:
+    raise RuntimeError(
+        "❌ CRITICAL: No API keys configured. Set API_KEYS in environment variables.\n"
+        "Example: API_KEYS=key1,key2,key3"
+    )
+
+print(f"✓ Loaded {len(VALID_API_KEYS)} valid API keys")
 
 
 async def verify_api_key(api_key: str = Security(api_key_header)):
@@ -56,14 +61,11 @@ def generate_api_key() -> str:
     return secrets.token_urlsafe(32)
 
 
-# Rate limiting storage (simple in-memory, use Redis for production)
-from collections import defaultdict
-from datetime import datetime, timedelta
-
+# Rate limiting storage (use Redis in production for distributed systems)
 class RateLimiter:
     """
     Simple in-memory rate limiter.
-    For production, use Redis with sliding window.
+    ⚠️ PRODUCTION: Replace with Redis for horizontal scaling.
     """
     def __init__(self, requests_per_minute: int = 60):
         self.requests_per_minute = requests_per_minute
@@ -90,7 +92,9 @@ class RateLimiter:
 
 
 # Global rate limiter instance
-rate_limiter = RateLimiter(requests_per_minute=60)
+rate_limiter = RateLimiter(
+    requests_per_minute=int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+)
 
 
 async def verify_api_key_with_rate_limit(api_key: str = Security(api_key_header)):

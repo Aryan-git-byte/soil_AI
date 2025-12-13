@@ -99,3 +99,7 @@ supabase/.temp/
 supabase/.local/
 supabase/
 knowledge_chunks_rows.csv
+
+index.html
+static/
+static

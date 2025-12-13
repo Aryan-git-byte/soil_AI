@@ -1,5 +1,5 @@
-# FarmBot Nova Backend - Secured with API Key Authentication
-from fastapi import FastAPI, Depends
+# app/main.py - Production Ready
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.routers.ai import router as ai_router
@@ -7,24 +7,67 @@ from app.routers.location import router as location_router
 from app.routers.image import router as image_router
 from app.core.security import verify_api_key_with_rate_limit, generate_api_key
 import os
+import logging
+from datetime import datetime
+
+# ✅ Configure logging for production
+logging.basicConfig(
+    level=logging.INFO if os.getenv("ENVIRONMENT") == "production" else logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="FarmBot Nova Backend",
     description="AI-Powered Agricultural Assistant with RAG",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs" if os.getenv("ENVIRONMENT") != "production" else None,  # Disable docs in prod
+    redoc_url="/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 )
 
-# CORS Configuration
-# ⚠️ IMPORTANT: In production, replace "*" with your actual frontend domain
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# ✅ PRODUCTION CORS - Strict origins only
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+
+if not ALLOWED_ORIGINS:
+    raise RuntimeError(
+        "❌ CRITICAL: ALLOWED_ORIGINS not configured.\n"
+        "Set in .env: ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com"
+    )
+
+logger.info(f"✓ CORS enabled for origins: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+# ✅ Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = datetime.utcnow()
+    
+    # Log request
+    logger.info(f"→ {request.method} {request.url.path}")
+    
+    try:
+        response = await call_next(request)
+        
+        # Log response
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        logger.info(
+            f"← {request.method} {request.url.path} "
+            f"status={response.status_code} duration={duration:.3f}s"
+        )
+        
+        return response
+    except Exception as e:
+        logger.error(f"✗ Request failed: {request.method} {request.url.path} - {e}")
+        raise
+
 
 # Public routes (no authentication required)
 @app.get("/")
@@ -33,16 +76,46 @@ async def root():
     return {
         "message": "FarmBot Nova Backend Running",
         "status": "healthy",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "environment": os.getenv("ENVIRONMENT", "unknown")
     }
+
 
 @app.get("/health")
 async def health():
-    """Public health check for load balancers"""
-    return {"status": "ok"}
+    """Comprehensive health check for load balancers"""
+    from app.services.sensor_service import supabase
+    from app.services.rag_service import qdrant_client, COLLECTION_NAME
+    
+    checks = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": {}
+    }
+    
+    # Check Qdrant
+    try:
+        qdrant_client.get_collection(COLLECTION_NAME)
+        checks["services"]["qdrant"] = "healthy"
+    except Exception as e:
+        logger.error(f"Qdrant health check failed: {e}")
+        checks["services"]["qdrant"] = "unhealthy"
+        checks["status"] = "degraded"
+    
+    # Check Supabase
+    try:
+        supabase.table("sensor_data").select("id").limit(1).execute()
+        checks["services"]["supabase"] = "healthy"
+    except Exception as e:
+        logger.error(f"Supabase health check failed: {e}")
+        checks["services"]["supabase"] = "unhealthy"
+        checks["status"] = "degraded"
+    
+    status_code = 200 if checks["status"] == "healthy" else 503
+    return JSONResponse(content=checks, status_code=status_code)
 
-# Protected routes (require API key)
-# Option 1: Apply authentication globally to all routers
+
+# Protected routes (require API key + rate limiting)
 app.include_router(
     ai_router,
     dependencies=[Depends(verify_api_key_with_rate_limit)]
@@ -58,41 +131,83 @@ app.include_router(
     dependencies=[Depends(verify_api_key_with_rate_limit)]
 )
 
-# Admin endpoint to generate new API keys (protect this!)
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "change_me_in_production")
+
+# ✅ PRODUCTION: Secure admin endpoint with strong secret
+ADMIN_SECRET = os.getenv("ADMIN_SECRET")
+
+if not ADMIN_SECRET:
+    raise RuntimeError(
+        "❌ CRITICAL: ADMIN_SECRET not set.\n"
+        "Set a strong random secret in .env: ADMIN_SECRET=your-secret-here"
+    )
+
 
 @app.post("/admin/generate-api-key")
 async def generate_new_api_key(admin_secret: str):
     """
     Generate a new API key (admin only).
-    Call with: POST /admin/generate-api-key?admin_secret=YOUR_SECRET
+    ⚠️ PRODUCTION: Add IP whitelisting or JWT authentication
     """
     if admin_secret != ADMIN_SECRET:
+        logger.warning("Unauthorized admin access attempt")
         return JSONResponse(
             status_code=401,
             content={"error": "Invalid admin secret"}
         )
     
     new_key = generate_api_key()
+    logger.info("New API key generated by admin")
+    
     return {
         "api_key": new_key,
-        "instructions": "Add this key to your .env file under API_KEYS"
+        "instructions": "Add this key to API_KEYS in .env (comma-separated)",
+        "example": f"API_KEYS=existing_key,{new_key}"
     }
 
-# Error handlers
+
+# ✅ Global exception handler - Never expose internal errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions"""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    
+    # Don't expose internal error details in production
+    if os.getenv("ENVIRONMENT") == "production":
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Internal server error",
+                "message": "An unexpected error occurred. Please try again later."
+            }
+        )
+    else:
+        # Show details in development
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Internal server error",
+                "message": str(exc),
+                "type": type(exc).__name__
+            }
+        )
+
+
+# HTTP error handlers
 @app.exception_handler(401)
 async def unauthorized_handler(request, exc):
+    logger.warning(f"Unauthorized access attempt: {request.url.path}")
     return JSONResponse(
         status_code=401,
         content={
             "error": "Unauthorized",
-            "message": "Valid API key required. Include 'X-API-Key' header.",
-            "docs": f"{request.base_url}docs"
+            "message": "Valid API key required. Include 'X-API-Key' header."
         }
     )
 
+
 @app.exception_handler(429)
 async def rate_limit_handler(request, exc):
+    logger.warning(f"Rate limit exceeded: {request.url.path}")
     return JSONResponse(
         status_code=429,
         content={
@@ -101,3 +216,19 @@ async def rate_limit_handler(request, exc):
         },
         headers={"Retry-After": "60"}
     )
+
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    logger.info("=" * 50)
+    logger.info("🚀 FarmBot Nova Backend Starting")
+    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'unknown')}")
+    logger.info(f"CORS Origins: {ALLOWED_ORIGINS}")
+    logger.info("=" * 50)
+
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("🛑 FarmBot Nova Backend Shutting Down")

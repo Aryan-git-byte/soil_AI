@@ -1,0 +1,89 @@
+services:
+  # FastAPI Backend
+  - type: web
+    name: farmbot-nova-backend
+    env: python
+    region: oregon # or your preferred region
+    plan: starter # or free for testing
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    healthCheckPath: /health
+    
+    envVars:
+      # Environment
+      - key: ENVIRONMENT
+        value: production
+      
+      # Python
+      - key: PYTHON_VERSION
+        value: 3.10
+      
+      # ======================================
+      # SYNC THESE FROM RENDER DASHBOARD
+      # ======================================
+      
+      # OpenRouter API Keys (add in dashboard as secrets)
+      - key: OPENROUTER_API_KEY_1
+        sync: false
+      - key: OPENROUTER_API_KEY_2
+        sync: false
+      - key: OPENROUTER_API_KEY_3
+        sync: false
+      
+      # OpenWeather
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      
+      # Qdrant
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION
+        value: farmbot_knowledge
+      
+      # Tavily
+      - key: TAVILY_API_KEY
+        sync: false
+      
+      # Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      
+      # Security
+      - key: ADMIN_SECRET
+        generateValue: true # Render will generate a random secret
+      
+      - key: API_KEYS
+        sync: false # Add your API keys in dashboard
+      
+      # CORS (update with your frontend URL)
+      - key: ALLOWED_ORIGINS
+        value: https://farmbot-nova-frontend.onrender.com
+      
+      # Rate Limiting
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 60
+      
+      # Soil Data (optional - not needed if you don't have soil files)
+      - key: SOIL_SAND_FILE
+        value: /opt/render/project/src/data/soil/sand.tif
+      - key: SOIL_CLAY_FILE
+        value: /opt/render/project/src/data/soil/clay.tif
+      - key: SOIL_SILT_FILE
+        value: /opt/render/project/src/data/soil/silt.tif
+      - key: SOIL_TEXTURE_FILE
+        value: /opt/render/project/src/data/soil/texture.tif
+
+  # Static Frontend (if hosting on Render)
+  - type: web
+    name: farmbot-nova-frontend
+    env: static
+    buildCommand: echo "No build needed for static site"
+    staticPublishPath: .
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -1,7 +1,8 @@
-# Enhanced AI service with RAG visibility - NO CROP/REGION FILTERING
+# app/services/ai_service.py - Production Ready
 import json
 import httpx
 import base64
+import logging
 from typing import Optional
 from fastapi import UploadFile
 
@@ -13,6 +14,7 @@ from app.services.soil_service import get_soil_physical, classify_indian_soil_ty
 from app.services.conversation_service import ConversationService
 from app.services.rag_service import hybrid_search, format_hybrid_context
 
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are FarmBot Nova — an agricultural assistant for Indian farming.
@@ -72,7 +74,7 @@ async def call_openrouter(messages: list):
     
     for i, key in enumerate(OPENROUTER_KEYS):
         try:
-            print(f"[OpenRouter] Trying key {i+1}/{len(OPENROUTER_KEYS)}")
+            logger.info(f"Trying OpenRouter key {i+1}/{len(OPENROUTER_KEYS)}")
             
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
@@ -90,14 +92,14 @@ async def call_openrouter(messages: list):
                 )
 
                 if response.status_code == 200:
-                    print(f"[OpenRouter] Key {i+1} succeeded")
+                    logger.info(f"OpenRouter key {i+1} succeeded")
                     return response.json()
                 else:
                     error_msg = response.text[:200] if response.text else "No error body"
-                    print(f"[OpenRouter] Key {i+1} failed: {response.status_code} - {error_msg}")
+                    logger.warning(f"OpenRouter key {i+1} failed: {response.status_code} - {error_msg}")
 
         except Exception as e:
-            print(f"[OpenRouter] Key {i+1} exception: {str(e)[:150]}")
+            logger.error(f"OpenRouter key {i+1} exception: {str(e)[:150]}")
 
     raise Exception("All OpenRouter keys failed")
 
@@ -111,6 +113,8 @@ async def process_ai_query(
     image: Optional[UploadFile] = None
 ):
     """Main AI query processor with pure vector search RAG"""
+    
+    logger.info(f"Processing AI query for user {auth_id}, conversation {conversation_id}")
     
     # Initialize services
     location_service = LocationService()
@@ -127,6 +131,8 @@ async def process_ai_query(
 
         lat = float(sensor.get("latitude", 0))
         lon = float(sensor.get("longitude", 0))
+    
+    logger.info(f"Using coordinates: ({lat}, {lon})")
     
     # Build location context
     location_context = location_service.build_location_context(lat, lon, weather_service)
@@ -150,7 +156,7 @@ async def process_ai_query(
     except Exception as e:
         location_context["soil_physical"] = None
         location_context["indian_soil_classification"] = None
-        print(f"[Soil] Error: {e}")
+        logger.error(f"Soil data error: {e}")
 
     # Get sensor data if needed
     if lat is not None and lon is not None and sensor is None:
@@ -182,7 +188,7 @@ async def process_ai_query(
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
 
-    # Hybrid RAG search - NO CROP/REGION FILTERING!
+    # Hybrid RAG search
     rag_info = {
         "success": False,
         "rag_chunks": [],
@@ -191,9 +197,8 @@ async def process_ai_query(
     }
     
     try:
-        print(f"\n[AI SERVICE] Starting RAG search for: '{query}'")
+        logger.info(f"Starting RAG search for: '{query[:50]}...'")
         
-        # Pure vector search - no crop/region params!
         hybrid_results = await hybrid_search(
             query=query,
             top_k_rag=8,
@@ -217,7 +222,7 @@ async def process_ai_query(
                     "similarity": round(chunk.get("similarity", 0), 4),
                     "text_preview": chunk.get("text", "")[:150] + "..."
                 }
-                for chunk in hybrid_results["rag_chunks"][:5]  # Top 5 for frontend
+                for chunk in hybrid_results["rag_chunks"][:5]
             ],
             "web_sources": [
                 {
@@ -225,17 +230,14 @@ async def process_ai_query(
                     "url": result.get("url"),
                     "content_preview": result.get("content", "")[:150] + "..."
                 }
-                for result in hybrid_results["web_results"][:3]  # Top 3 for frontend
+                for result in hybrid_results["web_results"][:3]
             ]
         }
         
-        print(f"[AI SERVICE] ✓ RAG search completed successfully")
-        print(f"[AI SERVICE] RAG chunks: {rag_info['rag_chunks_count']}, Web results: {rag_info['web_results_count']}")
+        logger.info(f"RAG search successful: rag={rag_info['rag_chunks_count']}, web={rag_info['web_results_count']}")
         
     except Exception as e:
-        print(f"[AI SERVICE] ✗ RAG ERROR: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"RAG search failed: {e}", exc_info=True)
         rag_context_text = ""
         rag_info["error"] = str(e)
 
@@ -261,7 +263,7 @@ async def process_ai_query(
             "content_type": media_type,
             "size": len(image_bytes)
         }
-        print(f"[Image] Processing: {image.filename} ({len(image_bytes)} bytes)")
+        logger.info(f"Processing image: {image.filename} ({len(image_bytes)} bytes)")
 
     # Build messages with history
     prompt = build_prompt(query, full_context, has_image)
@@ -293,8 +295,10 @@ async def process_ai_query(
         messages.append({"role": "user", "content": prompt})
 
     # Call AI model
+    logger.info("Calling OpenRouter API...")
     ai_response = await call_openrouter(messages)
     answer = ai_response["choices"][0]["message"]["content"]
+    logger.info("Received AI response")
 
     # Save conversation
     user_metadata = {
@@ -321,6 +325,8 @@ async def process_ai_query(
             "had_image": has_image
         }
     )
+
+    logger.info(f"Query processed successfully for {auth_id}")
 
     return {
         "answer": answer,
