@@ -16,7 +16,7 @@ services:
       
       # Python
       - key: PYTHON_VERSION
-        value: 3.10
+        value: 3.10.11
       
       # ======================================
       # SYNC THESE FROM RENDER DASHBOARD
