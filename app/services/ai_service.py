@@ -1,10 +1,11 @@
-# app/services/ai_service.py - Production Ready
+# app/services/ai_service.py - Production Ready with ML Integration
 import json
 import httpx
 import base64
 import logging
 from typing import Optional
 from fastapi import UploadFile
+from datetime import datetime
 
 from app.core.config import OPENROUTER_KEYS, OPENWEATHER_API_KEY
 from app.services.location_service import LocationService
@@ -16,19 +17,33 @@ from app.services.rag_service import hybrid_search, format_hybrid_context
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """
-You are FarmBot Nova — an agricultural assistant for Indian farming.
-Your job:
-- use ONLY the <context> data given
-- remember previous conversations
-- give short, practical, actionable advice
-- consider soil, weather, location, sensor data
-- mention Indian soil type when giving advice
-- if data is missing, say it clearly
-- be friendly and remember user details
-- analyze images for diseases, pests, health issues
+# Try to import ML service (optional)
+try:
+    from app.services.crop_service import CropPredictionService
+    crop_predictor = CropPredictionService()
+    ML_AVAILABLE = True
+    logger.info("✓ ML Crop Prediction Service loaded")
+except Exception as e:
+    ML_AVAILABLE = False
+    logger.warning(f"⚠️ ML Service not available: {e}")
 
-When you cite knowledge from the retrieved sources, mention the source briefly (e.g., "According to ICAR wheat guide...").
+SYSTEM_PROMPT = """
+You are FarmBot Nova — an advanced agricultural assistant for Indian farming.
+
+Your capabilities:
+- Use ONLY the <context> data provided
+- Remember previous conversations
+- Give short, practical, actionable advice
+- Consider soil, weather, location, sensor data
+- Use ML crop predictions when available
+- Mention Indian soil type when giving advice
+- Analyze images for diseases, pests, health issues
+- If data is missing, say it clearly
+- Be friendly and remember user details
+
+When you cite knowledge from retrieved sources, mention the source briefly (e.g., "According to ICAR wheat guide...").
+
+When ML predictions are available, explain WHY those crops were recommended based on the soil and weather conditions.
 
 Answer in clear bullet points unless asked otherwise.
 """
@@ -104,6 +119,43 @@ async def call_openrouter(messages: list):
     raise Exception("All OpenRouter keys failed")
 
 
+def detect_season_from_date():
+    """Detect Indian agricultural season from current date"""
+    month = datetime.now().month
+    
+    # Kharif: June-November (monsoon crops)
+    if 6 <= month <= 11:
+        return "kharif"
+    # Rabi: November-April (winter crops)
+    elif month <= 4 or month >= 11:
+        return "rabi"
+    # Summer/Zaid: March-June
+    else:
+        return "perennial"
+
+
+def should_use_ml_prediction(query: str, sensor: dict = None) -> bool:
+    """
+    Determine if ML crop prediction should be triggered
+    """
+    if not ML_AVAILABLE or not sensor:
+        return False
+    
+    # Check if required sensor data is available
+    required_fields = ["n", "p", "k", "ph"]
+    if not all(sensor.get(field) is not None for field in required_fields):
+        return False
+    
+    # Keywords that trigger ML prediction
+    ml_keywords = [
+        "crop", "grow", "plant", "recommend", "suggestion",
+        "best", "suitable", "optimal", "should i", "what to"
+    ]
+    
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in ml_keywords)
+
+
 async def process_ai_query(
     query: str,
     auth_id: str,
@@ -112,7 +164,7 @@ async def process_ai_query(
     lon: float = None,
     image: Optional[UploadFile] = None
 ):
-    """Main AI query processor with pure vector search RAG"""
+    """Main AI query processor with ML integration"""
     
     logger.info(f"Processing AI query for user {auth_id}, conversation {conversation_id}")
     
@@ -183,6 +235,58 @@ async def process_ai_query(
         full_context["sensor_available"] = True
     else:
         full_context["sensor_available"] = False
+
+    # ========================================
+    # 🚀 ML CROP PREDICTION INTEGRATION
+    # ========================================
+    ml_prediction_used = False
+    
+    if should_use_ml_prediction(query, sensor):
+        try:
+            logger.info("🌾 Triggering ML crop prediction...")
+            
+            # Get state from location context
+            state = location_context.get("location_info", {}).get("state", "bihar")
+            if state:
+                state = state.lower().replace(" ", "")
+            
+            # Detect season
+            season = detect_season_from_date()
+            
+            # Get weather data
+            weather = location_context.get("weather", {})
+            temperature = weather.get("temperature", 25.0)
+            humidity = weather.get("humidity", 70.0)
+            
+            # Estimate rainfall (you might want to get actual data)
+            rainfall = 100.0  # Default, you can enhance this
+            
+            # Run ML prediction
+            ml_results = crop_predictor.predict_crops(
+                temperature=temperature,
+                humidity=humidity,
+                ph=sensor.get("ph", 7.0),
+                rainfall=rainfall,
+                season=season,
+                state=state,
+                nitrogen=sensor.get("n", 50.0),
+                phosphorus=sensor.get("p", 50.0),
+                potassium=sensor.get("k", 50.0),
+                top_k=5
+            )
+            
+            # Add to context
+            full_context["ml_crop_predictions"] = ml_results
+            ml_prediction_used = True
+            
+            logger.info(f"✓ ML predictions: {[c['crop'] for c in ml_results['recommended_crops'][:3]]}")
+            
+        except Exception as e:
+            logger.error(f"ML prediction failed: {e}", exc_info=True)
+            full_context["ml_crop_predictions"] = {
+                "error": "ML prediction unavailable",
+                "reason": str(e)
+            }
 
     # Get conversation history
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
@@ -302,7 +406,8 @@ async def process_ai_query(
 
     # Save conversation
     user_metadata = {
-        "coordinates": {"lat": lat, "lon": lon}
+        "coordinates": {"lat": lat, "lon": lon},
+        "ml_prediction_used": ml_prediction_used
     }
     if has_image:
         user_metadata["image"] = image_metadata
@@ -322,7 +427,8 @@ async def process_ai_query(
         content=answer,
         metadata={
             "rag_info": rag_info,
-            "had_image": has_image
+            "had_image": has_image,
+            "ml_prediction_used": ml_prediction_used
         }
     )
 
@@ -334,5 +440,6 @@ async def process_ai_query(
         "conversation_id": conversation_id,
         "message_count": len(history) + 2,
         "had_image": has_image,
-        "rag_info": rag_info
+        "rag_info": rag_info,
+        "ml_prediction_used": ml_prediction_used
     }

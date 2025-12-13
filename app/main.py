@@ -1,4 +1,4 @@
-# app/main.py - Production Ready v1.0.0
+# app/main.py - Production Ready v1.0.0 with ML Integration
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,6 +10,14 @@ from app.core.security import verify_api_key_with_rate_limit, generate_api_key
 import os
 import logging
 from datetime import datetime
+
+# Try to import ML router (optional)
+try:
+    from app.routers.crop_prediction import router as crop_router
+    ML_ROUTER_AVAILABLE = True
+except Exception as e:
+    ML_ROUTER_AVAILABLE = False
+    logging.warning(f"⚠️ ML Crop Prediction router not available: {e}")
 
 # ✅ Configure logging for production
 logging.basicConfig(
@@ -23,8 +31,8 @@ IS_PRODUCTION = os.getenv("ENVIRONMENT") == "production"
 
 app = FastAPI(
     title="FarmBot Nova Backend",
-    description="AI-Powered Agricultural Assistant with RAG",
-    version="1.0.0",
+    description="AI-Powered Agricultural Assistant with RAG + ML Crop Prediction",
+    version="1.1.0",
     docs_url=None if IS_PRODUCTION else "/docs",
     redoc_url=None if IS_PRODUCTION else "/redoc",
     openapi_url=None if IS_PRODUCTION else "/openapi.json"
@@ -51,7 +59,7 @@ app.add_middleware(
 )
 
 
-# ✅ FIX #2: Security Headers Middleware
+# ✅ Security Headers Middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add essential security headers to all responses"""
     async def dispatch(self, request: Request, call_next):
@@ -82,7 +90,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# ✅ Add security headers middleware FIRST (before other middleware)
+# ✅ Add security headers middleware FIRST
 app.add_middleware(SecurityHeadersMiddleware)
 
 
@@ -114,11 +122,20 @@ async def log_requests(request: Request, call_next):
 @app.get("/")
 async def root():
     """Public health check endpoint"""
+    features = {
+        "ai_chatbot": True,
+        "rag_knowledge": True,
+        "ml_predictions": ML_ROUTER_AVAILABLE,
+        "image_analysis": True,
+        "location_intelligence": True
+    }
+    
     return {
         "message": "FarmBot Nova Backend Running",
         "status": "healthy",
-        "version": "1.0.0",
-        "environment": os.getenv("ENVIRONMENT", "unknown")
+        "version": "1.1.0",
+        "environment": os.getenv("ENVIRONMENT", "unknown"),
+        "features": features
     }
 
 
@@ -131,8 +148,9 @@ async def health():
     checks = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": "1.0.0",
-        "services": {}
+        "version": "1.1.0",
+        "services": {},
+        "features": {}
     }
     
     # Check Qdrant
@@ -153,6 +171,11 @@ async def health():
         checks["services"]["supabase"] = "unhealthy"
         checks["status"] = "degraded"
     
+    # Check ML availability
+    checks["features"]["ml_predictions"] = ML_ROUTER_AVAILABLE
+    checks["features"]["rag_knowledge"] = True
+    checks["features"]["image_analysis"] = True
+    
     status_code = 200 if checks["status"] == "healthy" else 503
     return JSONResponse(content=checks, status_code=status_code)
 
@@ -172,6 +195,16 @@ app.include_router(
     image_router,
     dependencies=[Depends(verify_api_key_with_rate_limit)]
 )
+
+# ✅ Add ML Crop Prediction Router (if available)
+if ML_ROUTER_AVAILABLE:
+    app.include_router(
+        crop_router,
+        dependencies=[Depends(verify_api_key_with_rate_limit)]
+    )
+    logger.info("✓ ML Crop Prediction routes enabled")
+else:
+    logger.warning("⚠️ ML Crop Prediction routes disabled (service not available)")
 
 
 # ✅ PRODUCTION: Secure admin endpoint with strong secret
@@ -264,11 +297,12 @@ async def rate_limit_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 50)
-    logger.info("🚀 FarmBot Nova Backend v1.0.0 Starting")
+    logger.info("🚀 FarmBot Nova Backend v1.1.0 Starting")
     logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'unknown')}")
     logger.info(f"CORS Origins: {ALLOWED_ORIGINS}")
     logger.info(f"API Docs: {'DISABLED' if IS_PRODUCTION else 'ENABLED'}")
     logger.info(f"Security Headers: ENABLED")
+    logger.info(f"ML Predictions: {'ENABLED ✓' if ML_ROUTER_AVAILABLE else 'DISABLED ⚠️'}")
     logger.info("=" * 50)
 
 
@@ -276,5 +310,4 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("🛑 FarmBot Nova Backend Shutting Down")
-    # TODO: Close database connections gracefully
     logger.info("✓ Shutdown complete")
