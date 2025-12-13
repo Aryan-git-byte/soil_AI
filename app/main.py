@@ -1,7 +1,8 @@
-# app/main.py - Production Ready
+# app/main.py - Production Ready v1.0.0
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.routers.ai import router as ai_router
 from app.routers.location import router as location_router
 from app.routers.image import router as image_router
@@ -17,12 +18,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ✅ PRODUCTION: Disable API docs completely in production
+IS_PRODUCTION = os.getenv("ENVIRONMENT") == "production"
+
 app = FastAPI(
     title="FarmBot Nova Backend",
     description="AI-Powered Agricultural Assistant with RAG",
     version="1.0.0",
-    docs_url="/docs" if os.getenv("ENVIRONMENT") != "production" else None,  # Disable docs in prod
-    redoc_url="/redoc" if os.getenv("ENVIRONMENT") != "production" else None
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json"
 )
 
 # ✅ PRODUCTION CORS - Strict origins only
@@ -44,6 +49,42 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+# ✅ FIX #2: Security Headers Middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add essential security headers to all responses"""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+        
+        # XSS protection (legacy but still useful)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        
+        # Force HTTPS (only in production)
+        if IS_PRODUCTION:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        
+        # Content Security Policy (restrictive)
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        
+        # Control referrer information
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # Permissions policy
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        
+        return response
+
+
+# ✅ Add security headers middleware FIRST (before other middleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 # ✅ Request logging middleware
 @app.middleware("http")
@@ -90,6 +131,7 @@ async def health():
     checks = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
+        "version": "1.0.0",
         "services": {}
     }
     
@@ -146,7 +188,7 @@ if not ADMIN_SECRET:
 async def generate_new_api_key(admin_secret: str):
     """
     Generate a new API key (admin only).
-    ⚠️ PRODUCTION: Add IP whitelisting or JWT authentication
+    ⚠️ PRODUCTION: Protect this endpoint with IP whitelisting
     """
     if admin_secret != ADMIN_SECRET:
         logger.warning("Unauthorized admin access attempt")
@@ -172,7 +214,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     
     # Don't expose internal error details in production
-    if os.getenv("ENVIRONMENT") == "production":
+    if IS_PRODUCTION:
         return JSONResponse(
             status_code=500,
             content={
@@ -222,9 +264,11 @@ async def rate_limit_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 50)
-    logger.info("🚀 FarmBot Nova Backend Starting")
+    logger.info("🚀 FarmBot Nova Backend v1.0.0 Starting")
     logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'unknown')}")
     logger.info(f"CORS Origins: {ALLOWED_ORIGINS}")
+    logger.info(f"API Docs: {'DISABLED' if IS_PRODUCTION else 'ENABLED'}")
+    logger.info(f"Security Headers: ENABLED")
     logger.info("=" * 50)
 
 
@@ -232,3 +276,5 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("🛑 FarmBot Nova Backend Shutting Down")
+    # TODO: Close database connections gracefully
+    logger.info("✓ Shutdown complete")

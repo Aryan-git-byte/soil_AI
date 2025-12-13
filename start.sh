@@ -1,10 +1,8 @@
 #!/bin/bash
 
-# ======================================
-# FARMBOT NOVA - PRODUCTION START SCRIPT (RENDER)
-# ======================================
+# =============
 
-echo "🚀 Starting FarmBot Nova Backend (Production)"
+echo "🚀 Starting FarmBot Nova Backend v1.0.0 (Production)"
 echo "Platform: Render"
 echo "=" 
 
@@ -66,30 +64,54 @@ fi
 
 echo ""
 echo "=" 
-echo "🌾 FarmBot Nova Configuration:"
+echo "🌾 FarmBot Nova v1.0.0 Configuration:"
 echo "  Environment: $ENVIRONMENT"
 echo "  CORS Origins: $ALLOWED_ORIGINS"
 echo "  Qdrant: $QDRANT_URL"
 echo "  Supabase: $SUPABASE_URL"
+echo "  Security Headers: ENABLED"
 echo "=" 
 echo ""
 
-# Start server with production settings
-echo "🚀 Starting Uvicorn server..."
+# ✅ FIX #1: Use Gunicorn with Uvicorn workers (PRODUCTION BEST PRACTICE)
+echo "🚀 Starting Gunicorn with Uvicorn workers..."
 echo ""
 
 # Render uses PORT environment variable
 PORT=${PORT:-8000}
 
-# Use Uvicorn with production settings
-# - No --reload (causes memory leaks)
-# - Multiple workers for concurrency
-# - Proper logging
-exec uvicorn app.main:app \
-    --host 0.0.0.0 \
-    --port $PORT \
-    --workers 2 \
+# Calculate optimal worker count
+# Render starter plan has 0.5 CPU, so use 2 workers
+# For higher plans: workers = 2 * CPU_cores + 1
+WORKERS=${WORKERS:-2}
+
+# ✅ PRODUCTION-GRADE SERVER CONFIGURATION
+exec gunicorn app.main:app \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --workers $WORKERS \
+    --bind 0.0.0.0:$PORT \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --timeout 30 \
+    --keepalive 5 \
+    --graceful-timeout 30 \
+    --preload \
     --log-level info \
-    --no-access-log \
-    --proxy-headers \
-    --forwarded-allow-ips='*'
+    --access-logfile - \
+    --error-logfile - \
+    --capture-output \
+    --enable-stdio-inheritance
+
+# Explanation of flags:
+# --worker-class: Use Uvicorn workers for async support
+# --workers: Number of worker processes (2 for starter plan)
+# --max-requests: Restart workers after N requests (prevents memory leaks)
+# --max-requests-jitter: Add randomness to prevent simultaneous restarts
+# --timeout: Worker timeout (30s for AI API calls)
+# --keepalive: Keep connections alive for 5s
+# --graceful-timeout: Time to finish requests during shutdown
+# --preload: Load app before forking (saves memory)
+# --log-level: Info level logging
+# --access-logfile/-error-logfile: Log to stdout/stderr
+# --capture-output: Capture worker output
+# --enable-stdio-inheritance: Inherit stdio from parent
