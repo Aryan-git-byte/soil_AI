@@ -40,6 +40,49 @@
             opacity: 0.7;
         }
 
+        .api-key-setup {
+            background: #1a1a1a;
+            border: 2px solid #f00;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .api-key-setup h3 {
+            color: #f00;
+            margin-bottom: 15px;
+        }
+
+        .api-key-setup p {
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+
+        .api-key-info {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .api-key-info p {
+            color: #aaa;
+            font-size: 0.9rem;
+            margin: 5px 0;
+        }
+
+        .api-key-info strong {
+            color: #fff;
+        }
+
+        .btn-logout {
+            background: #f00;
+            color: #fff;
+            margin-top: 10px;
+        }
+
         .main-content {
             display: grid;
             grid-template-columns: 1fr 2fr;
@@ -239,7 +282,6 @@
             border: 2px solid #333;
         }
 
-        /* RAG Info Styling */
         .rag-info {
             background: #1a2a1a;
             border: 1px solid #2a4a2a;
@@ -321,34 +363,6 @@
             text-decoration: underline;
         }
 
-        .rag-toggle {
-            background: #2a4a2a;
-            color: #6fc276;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            margin-top: 8px;
-        }
-
-        .rag-toggle:hover {
-            background: #3a5a3a;
-        }
-
-        .rag-details {
-            display: none;
-            margin-top: 10px;
-            padding: 10px;
-            background: #0f1f0f;
-            border-radius: 5px;
-        }
-
-        .rag-details.active {
-            display: block;
-        }
-
-        /* Markdown styling */
         .message-content h1, .message-content h2, .message-content h3, 
         .message-content h4, .message-content h5, .message-content h6 {
             color: #fff;
@@ -396,6 +410,20 @@
         }
 
         .error.active {
+            display: block;
+        }
+
+        .success {
+            background: #0a2a0a;
+            border-left: 4px solid #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            color: #6bff6b;
+            display: none;
+            margin-bottom: 15px;
+        }
+
+        .success.active {
             display: block;
         }
 
@@ -498,71 +526,98 @@
             <p>Your AI-Powered Agricultural Assistant with Memory & Vision</p>
         </div>
 
-        <div class="main-content">
-            <!-- Sidebar -->
-            <div class="sidebar">
-                <div class="card">
-                    <h2>👤 User Settings</h2>
-                    <div class="input-group">
-                        <label for="authId">Your Auth ID</label>
-                        <input type="text" id="authId" placeholder="e.g., 7659753">
-                    </div>
-                    <button class="btn" id="setAuthBtn">Set Auth ID</button>
-                    <div class="user-info" id="userInfo" style="display: none; margin-top: 15px;">
-                        <p><strong>Auth ID:</strong> <span id="displayAuthId">-</span></p>
-                        <p><strong>Conversation ID:</strong> <span id="displayConvId">-</span></p>
-                        <p><strong>Messages:</strong> <span id="messageCount">0</span></p>
-                    </div>
-                    <button class="btn btn-secondary" id="newConvBtn" style="display: none;">Start New Conversation</button>
-                </div>
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
 
-                <div class="card">
-                    <h2>📍 Location</h2>
-                    <div class="coords-group">
-                        <div class="input-group">
-                            <label for="latitude">Latitude</label>
-                            <input type="number" id="latitude" step="0.000001" placeholder="25.5941">
-                        </div>
-                        <div class="input-group">
-                            <label for="longitude">Longitude</label>
-                            <input type="number" id="longitude" step="0.000001" placeholder="85.1376">
-                        </div>
-                    </div>
-                    <p class="note-text">Optional - uses sensor location if empty</p>
-                </div>
+        <!-- API Key Setup -->
+        <div class="api-key-setup" id="apiKeySetup" style="display: none;">
+            <h3>🔐 API Key Required</h3>
+            <p>To use FarmBot Nova, you need an API key. Contact your administrator to get one.</p>
+            <div class="input-group">
+                <label for="apiKeyInput">Enter Your API Key</label>
+                <input type="password" id="apiKeyInput" placeholder="paste-your-api-key-here">
             </div>
+            <button class="btn" id="saveApiKeyBtn">Save API Key</button>
+            <p style="color: #666; font-size: 0.85rem; margin-top: 10px;">
+                Your API key will be stored securely in your browser's local storage.
+            </p>
+        </div>
 
-            <!-- Chat Area -->
-            <div class="card chat-container">
-                <h2>💬 Chat with FarmBot</h2>
-                
-                <div class="error" id="error"></div>
-                
-                <div class="messages-area" id="messagesArea">
-                    <p style="color: #666; text-align: center;">Set your Auth ID to start chatting...</p>
-                </div>
+        <!-- Main App -->
+        <div id="mainApp" style="display: none;">
+            <div class="main-content">
+                <!-- Sidebar -->
+                <div class="sidebar">
+                    <div class="card">
+                        <h2>👤 User Settings</h2>
+                        <div class="input-group">
+                            <label for="authId">Your Auth ID</label>
+                            <input type="text" id="authId" placeholder="e.g., 7659753">
+                        </div>
+                        <button class="btn" id="setAuthBtn">Set Auth ID</button>
+                        <div class="user-info" id="userInfo" style="display: none; margin-top: 15px;">
+                            <p><strong>Auth ID:</strong> <span id="displayAuthId">-</span></p>
+                            <p><strong>Conversation ID:</strong> <span id="displayConvId">-</span></p>
+                            <p><strong>Messages:</strong> <span id="messageCount">0</span></p>
+                        </div>
+                        <button class="btn btn-secondary" id="newConvBtn" style="display: none;">Start New Conversation</button>
+                    </div>
 
-                <!-- Image Upload Section -->
-                <div class="image-upload-section" id="imageUploadSection">
-                    <p style="color: #aaa;">📸 Click to upload image (optional)</p>
-                    <p style="color: #666; font-size: 0.85rem; margin-top: 5px;">Crop diseases, plant health, soil analysis, pests, weeds</p>
-                    <input type="file" id="imageInput" accept="image/jpeg,image/jpg,image/png,image/webp">
-                    <div id="imagePreviewContainer" style="display: none;">
-                        <img id="imagePreview" class="image-preview" alt="Preview">
-                        <br>
-                        <button class="remove-image" id="removeImageBtn">Remove Image</button>
+                    <div class="card">
+                        <h2>📍 Location</h2>
+                        <div class="coords-group">
+                            <div class="input-group">
+                                <label for="latitude">Latitude</label>
+                                <input type="number" id="latitude" step="0.000001" placeholder="25.5941">
+                            </div>
+                            <div class="input-group">
+                                <label for="longitude">Longitude</label>
+                                <input type="number" id="longitude" step="0.000001" placeholder="85.1376">
+                            </div>
+                        </div>
+                        <p class="note-text">Optional - uses sensor location if empty</p>
+                    </div>
+
+                    <div class="card">
+                        <h2>🔐 API Key Status</h2>
+                        <div class="api-key-info">
+                            <p><strong>Status:</strong> <span style="color: #0f0;">✓ Active</span></p>
+                            <p><strong>Key:</strong> <span id="maskedApiKey">••••••••</span></p>
+                        </div>
+                        <button class="btn btn-secondary btn-logout" id="logoutBtn">Logout & Clear Key</button>
                     </div>
                 </div>
 
-                <div class="input-group">
-                    <textarea id="query" placeholder="Ask me anything about farming or describe your image..." disabled></textarea>
-                </div>
-                
-                <button class="btn" id="askBtn" disabled>Send Message</button>
-                
-                <div class="loading" id="loading">
-                    <div class="spinner"></div>
-                    <p style="margin-top: 10px; color: #aaa;">Thinking...</p>
+                <!-- Chat Area -->
+                <div class="card chat-container">
+                    <h2>💬 Chat with FarmBot</h2>
+                    
+                    <div class="messages-area" id="messagesArea">
+                        <p style="color: #666; text-align: center;">Set your Auth ID to start chatting...</p>
+                    </div>
+
+                    <!-- Image Upload -->
+                    <div class="image-upload-section" id="imageUploadSection">
+                        <p style="color: #aaa;">📸 Click to upload image (optional)</p>
+                        <p style="color: #666; font-size: 0.85rem; margin-top: 5px;">Crop diseases, plant health, soil analysis, pests, weeds</p>
+                        <input type="file" id="imageInput" accept="image/jpeg,image/jpg,image/png,image/webp">
+                        <div id="imagePreviewContainer" style="display: none;">
+                            <img id="imagePreview" class="image-preview" alt="Preview">
+                            <br>
+                            <button class="remove-image" id="removeImageBtn">Remove Image</button>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <textarea id="query" placeholder="Ask me anything about farming or describe your image..." disabled></textarea>
+                    </div>
+                    
+                    <button class="btn" id="askBtn" disabled>Send Message</button>
+                    
+                    <div class="loading" id="loading">
+                        <div class="spinner"></div>
+                        <p style="margin-top: 10px; color: #aaa;">Thinking...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -570,12 +625,18 @@
 
     <script>
         const API_BASE = 'http://localhost:8000';
+        const API_KEY_STORAGE_KEY = 'farmbot_api_key';
 
+        let apiKey = null;
         let currentAuthId = null;
         let currentConvId = null;
         let selectedImage = null;
 
         const elements = {
+            apiKeySetup: document.getElementById('apiKeySetup'),
+            apiKeyInput: document.getElementById('apiKeyInput'),
+            saveApiKeyBtn: document.getElementById('saveApiKeyBtn'),
+            mainApp: document.getElementById('mainApp'),
             authId: document.getElementById('authId'),
             setAuthBtn: document.getElementById('setAuthBtn'),
             newConvBtn: document.getElementById('newConvBtn'),
@@ -590,14 +651,95 @@
             longitude: document.getElementById('longitude'),
             messagesArea: document.getElementById('messagesArea'),
             error: document.getElementById('error'),
+            success: document.getElementById('success'),
             imageInput: document.getElementById('imageInput'),
             imageUploadSection: document.getElementById('imageUploadSection'),
             imagePreviewContainer: document.getElementById('imagePreviewContainer'),
             imagePreview: document.getElementById('imagePreview'),
-            removeImageBtn: document.getElementById('removeImageBtn')
+            removeImageBtn: document.getElementById('removeImageBtn'),
+            maskedApiKey: document.getElementById('maskedApiKey'),
+            logoutBtn: document.getElementById('logoutBtn')
         };
 
-        // Set Auth ID
+        function checkApiKey() {
+            apiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+            
+            if (apiKey) {
+                elements.apiKeySetup.style.display = 'none';
+                elements.mainApp.style.display = 'block';
+                elements.maskedApiKey.textContent = '••••' + apiKey.slice(-4);
+                testApiKey();
+            } else {
+                elements.apiKeySetup.style.display = 'block';
+                elements.mainApp.style.display = 'none';
+            }
+        }
+
+        async function testApiKey() {
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                
+                if (response.status === 401) {
+                    showError('Invalid API key. Please enter a valid key.');
+                    localStorage.removeItem(API_KEY_STORAGE_KEY);
+                    checkApiKey();
+                }
+            } catch (error) {
+                console.error('API key test failed:', error);
+            }
+        }
+
+        elements.saveApiKeyBtn.addEventListener('click', () => {
+            const keyInput = elements.apiKeyInput.value.trim();
+            
+            if (!keyInput) {
+                showError('Please enter an API key');
+                return;
+            }
+
+            localStorage.setItem(API_KEY_STORAGE_KEY, keyInput);
+            apiKey = keyInput;
+            
+            showSuccess('API key saved! Testing connection...');
+            setTimeout(() => hideSuccess(), 3000);
+            checkApiKey();
+        });
+
+        elements.logoutBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to logout and clear your API key?')) {
+                localStorage.removeItem(API_KEY_STORAGE_KEY);
+                apiKey = null;
+                currentAuthId = null;
+                currentConvId = null;
+                checkApiKey();
+                showSuccess('Logged out successfully');
+                setTimeout(() => hideSuccess(), 2000);
+            }
+        });
+
+        async function authenticatedFetch(url, options = {}) {
+            if (!apiKey) throw new Error('No API key available');
+
+            options.headers = { ...options.headers, 'X-API-Key': apiKey };
+            const response = await fetch(url, options);
+
+            if (response.status === 401) {
+                showError('API key expired or invalid. Please re-enter.');
+                localStorage.removeItem(API_KEY_STORAGE_KEY);
+                checkApiKey();
+                throw new Error('Unauthorized');
+            }
+
+            if (response.status === 429) {
+                showError('Rate limit exceeded. Please wait a minute.');
+                throw new Error('Rate limited');
+            }
+
+            return response;
+        }
+
         elements.setAuthBtn.addEventListener('click', () => {
             const authId = elements.authId.value.trim();
             
@@ -619,11 +761,9 @@
             elements.askBtn.disabled = false;
             
             elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
-            
             hideError();
         });
 
-        // Start new conversation
         elements.newConvBtn.addEventListener('click', () => {
             if (!currentAuthId) return;
             
@@ -633,7 +773,6 @@
             elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
         });
 
-        // Image upload handling
         elements.imageUploadSection.addEventListener('click', () => {
             elements.imageInput.click();
         });
@@ -660,7 +799,6 @@
             elements.imageUploadSection.classList.remove('active');
         });
 
-        // Send message
         elements.askBtn.addEventListener('click', async () => {
             const query = elements.query.value.trim();
             
@@ -676,7 +814,6 @@
 
             hideError();
             
-            // Add user message to UI
             const imageUrl = selectedImage ? elements.imagePreview.src : null;
             addMessage('user', query, null, imageUrl);
             elements.query.value = '';
@@ -705,7 +842,7 @@
                     formData.append('image', selectedImage);
                 }
 
-                const response = await fetch(`${API_BASE}/api/ai/ask`, {
+                const response = await authenticatedFetch(`${API_BASE}/api/ai/ask`, {
                     method: 'POST',
                     body: formData
                 });
@@ -732,7 +869,6 @@
                     elements.messageCount.textContent = data.message_count;
                 }
                 
-                // Add assistant response with RAG info
                 addMessage('assistant', data.answer, data.context_used, null, data.rag_info);
                 
             } catch (error) {
@@ -743,7 +879,6 @@
             }
         });
 
-        // Add message to chat with RAG info
         function addMessage(role, content, context = null, imageUrl = null, ragInfo = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
@@ -755,7 +890,6 @@
             if (role === 'assistant') {
                 html += `<div class="message-content">${marked.parse(content)}</div>`;
                 
-                // Add RAG info if available
                 if (ragInfo && ragInfo.success) {
                     html += createRagInfoHTML(ragInfo);
                 }
@@ -784,11 +918,9 @@
             elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
         }
 
-        // Create RAG info HTML
         function createRagInfoHTML(ragInfo) {
             let html = '<div class="rag-info">';
             
-            // Header with badges
             html += '<div class="rag-info-header">';
             html += '🔍 Knowledge Sources';
             html += `<span class="rag-badge">RAG: ${ragInfo.rag_chunks_count}</span>`;
@@ -797,10 +929,9 @@
             }
             html += '</div>';
             
-            // RAG sources
             if (ragInfo.rag_sources && ragInfo.rag_sources.length > 0) {
                 html += '<div class="rag-sources">';
-                ragInfo.rag_sources.forEach((source, idx) => {
+                ragInfo.rag_sources.forEach((source) => {
                     html += `<div class="rag-source-item">`;
                     html += `<div class="rag-source-header">📚 ${source.source || 'Knowledge Base'}</div>`;
                     html += `<div class="rag-source-meta">`;
@@ -814,10 +945,9 @@
                 html += '</div>';
             }
             
-            // Web sources
             if (ragInfo.web_sources && ragInfo.web_sources.length > 0) {
                 html += '<div class="rag-sources">';
-                ragInfo.web_sources.forEach((source, idx) => {
+                ragInfo.web_sources.forEach((source) => {
                     html += `<div class="web-source-item">`;
                     html += `<div class="web-source-header">🌐 ${source.title}</div>`;
                     html += `<a href="${source.url}" target="_blank" class="web-source-url">${source.url}</a>`;
@@ -831,13 +961,11 @@
             return html;
         }
 
-        // Toggle context visibility
         window.toggleContext = function(contextId) {
             const contextDiv = document.getElementById(contextId);
             contextDiv.classList.toggle('active');
         };
 
-        // JSON syntax highlighting
         function syntaxHighlight(json) {
             json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
@@ -857,7 +985,6 @@
             });
         }
 
-        // Error handling
         function showError(message) {
             elements.error.textContent = message;
             elements.error.classList.add('active');
@@ -867,12 +994,22 @@
             elements.error.classList.remove('active');
         }
 
-        // Keyboard shortcuts
+        function showSuccess(message) {
+            elements.success.textContent = message;
+            elements.success.classList.add('active');
+        }
+
+        function hideSuccess() {
+            elements.success.classList.remove('active');
+        }
+
         elements.query.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
                 elements.askBtn.click();
             }
         });
+
+        checkApiKey();
     </script>
 </body>
 </html>
