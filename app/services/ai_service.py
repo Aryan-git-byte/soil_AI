@@ -1,4 +1,4 @@
-# app/services/ai_service.py - Production Ready with ML Integration
+# app/services/ai_service.py - Enhanced with Hindi/English Support
 import json
 import httpx
 import base64
@@ -27,11 +27,22 @@ except Exception as e:
     ML_AVAILABLE = False
     logger.warning(f"⚠️ ML Service not available: {e}")
 
-SYSTEM_PROMPT = """
+# ========================================
+# 🌍 BILINGUAL SYSTEM PROMPT
+# ========================================
+SYSTEM_PROMPT_BILINGUAL = """
 You are FarmBot Nova — an advanced agricultural assistant for Indian farming.
 
+🌍 LANGUAGE SUPPORT:
+- You can communicate in BOTH Hindi (हिंदी) and English
+- Automatically detect the user's language from their query
+- Respond in the SAME language the user used
+- If user mixes languages, prioritize their dominant language
+- Use Devanagari script for Hindi responses
+- Keep farming terminology clear in both languages
+
 Your capabilities:
-- Use ONLY the <context> data provided
+- Primarily rely on <context> data. If missing, use general agricultural knowledge and clearly state assumptions.
 - Remember previous conversations
 - Give short, practical, actionable advice
 - Consider soil, weather, location, sensor data
@@ -41,20 +52,63 @@ Your capabilities:
 - If data is missing, say it clearly
 - Be friendly and remember user details
 
-When you cite knowledge from retrieved sources, mention the source briefly (e.g., "According to ICAR wheat guide...").
+When you cite knowledge from retrieved sources, mention the source briefly (e.g., "According to ICAR wheat guide..." or "ICAR गेहूं गाइड के अनुसार...").
 
 When ML predictions are available, explain WHY those crops were recommended based on the soil and weather conditions.
+
+LANGUAGE EXAMPLES:
+- Hindi Query: "गेहूं के लिए कौन सी खाद अच्छी है?"
+  → Respond in Hindi: "गेहूं के लिए नाइट्रोजन, फॉस्फोरस और पोटाश (NPK) खाद उपयोगी है..."
+
+- English Query: "What fertilizer is good for wheat?"
+  → Respond in English: "For wheat, NPK fertilizer is beneficial..."
+
+- Mixed Query: "What is best खाद for wheat?"
+  → Respond in English (dominant language)
 
 Answer in clear bullet points unless asked otherwise.
 """
 
+# ========================================
+# LANGUAGE DETECTION
+# ========================================
+def detect_language(text: str) -> str:
+    """
+    Detect if text is primarily Hindi or English.
+    Returns: 'hindi' or 'english'
+    """
+    # Hindi Unicode range: \u0900-\u097F (Devanagari)
+    hindi_chars = sum(1 for c in text if '\u0900' <= c <= '\u097F')
+    total_chars = len([c for c in text if c.isalpha()])
+    
+    if total_chars == 0:
+        return 'english'
+    
+    # If >30% Hindi characters, treat as Hindi
+    hindi_ratio = hindi_chars / total_chars if total_chars > 0 else 0
+    
+    return 'hindi' if hindi_ratio > 0.3 else 'english'
 
-def build_prompt(query: str, full_context: dict, has_image: bool = False):
-    """Build AI prompt with context"""
+
+# ========================================
+# LANGUAGE-AWARE PROMPT BUILDER
+# ========================================
+def build_prompt_bilingual(query: str, full_context: dict, has_image: bool = False):
+    """Build AI prompt with bilingual awareness"""
+    
+    detected_lang = detect_language(query)
+    
     ctx = json.dumps(full_context, indent=2)
+    
+    # Language instruction based on detection
+    if detected_lang == 'hindi':
+        lang_instruction = "\n🌍 IMPORTANT: User is asking in HINDI. Respond in HINDI (हिंदी) using Devanagari script.\n"
+    else:
+        lang_instruction = "\n🌍 IMPORTANT: User is asking in ENGLISH. Respond in ENGLISH.\n"
     
     if has_image:
         return f"""
+{lang_instruction}
 <context>
 {ctx}
 </context>
@@ -64,10 +118,11 @@ User uploaded an image and asks:
 
 Analyze the image carefully and provide detailed insights. If you reference information from the retrieved knowledge, cite the source.
 
-Your answer:
+Your answer (in {detected_lang.upper()}):
 """
     else:
         return f"""
+{lang_instruction}
 <context>
 {ctx}
 </context>
@@ -75,7 +130,7 @@ Your answer:
 User Question:
 {query}
 
-Your answer (cite sources when using retrieved knowledge):
+Your answer (in {detected_lang.upper()}, cite sources when using retrieved knowledge):
 """
 
 
@@ -137,6 +192,7 @@ def detect_season_from_date():
 def should_use_ml_prediction(query: str, sensor: dict = None) -> bool:
     """
     Determine if ML crop prediction should be triggered
+    Works with both Hindi and English queries
     """
     if not ML_AVAILABLE or not sensor:
         return False
@@ -146,14 +202,23 @@ def should_use_ml_prediction(query: str, sensor: dict = None) -> bool:
     if not all(sensor.get(field) is not None for field in required_fields):
         return False
     
-    # Keywords that trigger ML prediction
-    ml_keywords = [
+    # Keywords in both English and Hindi
+    ml_keywords_en = [
         "crop", "grow", "plant", "recommend", "suggestion",
         "best", "suitable", "optimal", "should i", "what to"
     ]
     
+    ml_keywords_hi = [
+        "फसल", "उगा", "लगा", "सुझाव", "सिफारिश",
+        "अच्छा", "उपयुक्त", "बेहतर", "कौन सा", "क्या"
+    ]
+    
     query_lower = query.lower()
-    return any(keyword in query_lower for keyword in ml_keywords)
+    
+    return (
+        any(keyword in query_lower for keyword in ml_keywords_en) or
+        any(keyword in query for keyword in ml_keywords_hi)
+    )
 
 
 async def process_ai_query(
@@ -164,7 +229,11 @@ async def process_ai_query(
     lon: float = None,
     image: Optional[UploadFile] = None
 ):
-    """Main AI query processor with ML integration"""
+    """Main AI query processor with bilingual support"""
+    
+    # Detect language
+    detected_lang = detect_language(query)
+    logger.info(f"Detected language: {detected_lang} for query: {query[:50]}...")
     
     logger.info(f"Processing AI query for user {auth_id}, conversation {conversation_id}")
     
@@ -179,7 +248,11 @@ async def process_ai_query(
         sensor = await get_latest_sensor_data(lat=None, lon=None)
 
         if not sensor:
-            raise Exception("No sensor data and no lat/lon provided")
+            # Return error message in detected language
+            if detected_lang == 'hindi':
+                raise Exception("कोई सेंसर डेटा उपलब्ध नहीं है और कोई स्थान प्रदान नहीं किया गया")
+            else:
+                raise Exception("No sensor data and no lat/lon provided")
 
         lat = float(sensor.get("latitude", 0))
         lon = float(sensor.get("longitude", 0))
@@ -218,6 +291,7 @@ async def process_ai_query(
     full_context = {
         "coordinates": {"lat": lat, "lon": lon},
         "location_context": location_context,
+        "language_detected": detected_lang
     }
     
     # Add sensor data
@@ -236,32 +310,23 @@ async def process_ai_query(
     else:
         full_context["sensor_available"] = False
 
-    # ========================================
-    # 🚀 ML CROP PREDICTION INTEGRATION
-    # ========================================
+    # ML Crop Prediction (works with both languages)
     ml_prediction_used = False
     
     if should_use_ml_prediction(query, sensor):
         try:
             logger.info("🌾 Triggering ML crop prediction...")
             
-            # Get state from location context
             state = location_context.get("location_info", {}).get("state", "bihar")
             if state:
                 state = state.lower().replace(" ", "")
             
-            # Detect season
             season = detect_season_from_date()
-            
-            # Get weather data
             weather = location_context.get("weather", {})
             temperature = weather.get("temperature", 25.0)
             humidity = weather.get("humidity", 70.0)
+            rainfall = 100.0
             
-            # Estimate rainfall (you might want to get actual data)
-            rainfall = 100.0  # Default, you can enhance this
-            
-            # Run ML prediction
             ml_results = crop_predictor.predict_crops(
                 temperature=temperature,
                 humidity=humidity,
@@ -275,7 +340,6 @@ async def process_ai_query(
                 top_k=5
             )
             
-            # Add to context
             full_context["ml_crop_predictions"] = ml_results
             ml_prediction_used = True
             
@@ -311,7 +375,6 @@ async def process_ai_query(
         
         rag_context_text = format_hybrid_context(hybrid_results)
         
-        # Enhanced RAG info for frontend
         rag_info = {
             "success": True,
             "rag_chunks_count": hybrid_results["rag_count"],
@@ -345,7 +408,6 @@ async def process_ai_query(
         rag_context_text = ""
         rag_info["error"] = str(e)
 
-    # Attach retrieved knowledge
     full_context["knowledge_retrieval"] = rag_info
     
     if rag_context_text:
@@ -369,11 +431,11 @@ async def process_ai_query(
         }
         logger.info(f"Processing image: {image.filename} ({len(image_bytes)} bytes)")
 
-    # Build messages with history
-    prompt = build_prompt(query, full_context, has_image)
+    # Build messages with bilingual system prompt
+    prompt = build_prompt_bilingual(query, full_context, has_image)
     
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT}
+        {"role": "system", "content": SYSTEM_PROMPT_BILINGUAL}
     ]
     
     messages.extend(formatted_history)
@@ -407,7 +469,8 @@ async def process_ai_query(
     # Save conversation
     user_metadata = {
         "coordinates": {"lat": lat, "lon": lon},
-        "ml_prediction_used": ml_prediction_used
+        "ml_prediction_used": ml_prediction_used,
+        "language": detected_lang
     }
     if has_image:
         user_metadata["image"] = image_metadata
@@ -428,11 +491,12 @@ async def process_ai_query(
         metadata={
             "rag_info": rag_info,
             "had_image": has_image,
-            "ml_prediction_used": ml_prediction_used
+            "ml_prediction_used": ml_prediction_used,
+            "language": detected_lang
         }
     )
 
-    logger.info(f"Query processed successfully for {auth_id}")
+    logger.info(f"Query processed successfully for {auth_id} in {detected_lang}")
 
     return {
         "answer": answer,
@@ -441,5 +505,6 @@ async def process_ai_query(
         "message_count": len(history) + 2,
         "had_image": has_image,
         "rag_info": rag_info,
-        "ml_prediction_used": ml_prediction_used
+        "ml_prediction_used": ml_prediction_used,
+        "detected_language": detected_lang
     }

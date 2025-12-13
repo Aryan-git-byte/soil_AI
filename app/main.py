@@ -1,4 +1,4 @@
-# app/main.py - Production Ready v1.0.0 with ML Integration
+# app/main.py - Fixed CSP for /docs to work properly
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -19,14 +19,14 @@ except Exception as e:
     ML_ROUTER_AVAILABLE = False
     logging.warning(f"⚠️ ML Crop Prediction router not available: {e}")
 
-# ✅ Configure logging for production
+# Configure logging
 logging.basicConfig(
     level=logging.INFO if os.getenv("ENVIRONMENT") == "production" else logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ✅ PRODUCTION: Disable API docs completely in production
+# Check environment
 IS_PRODUCTION = os.getenv("ENVIRONMENT") == "production"
 
 app = FastAPI(
@@ -38,7 +38,7 @@ app = FastAPI(
     openapi_url=None if IS_PRODUCTION else "/openapi.json"
 )
 
-# ✅ PRODUCTION CORS - Strict origins only
+# CORS Configuration
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
 ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
 
@@ -59,7 +59,7 @@ app.add_middleware(
 )
 
 
-# ✅ Security Headers Middleware
+# ✅ FIXED: Security Headers Middleware with proper CSP for /docs
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add essential security headers to all responses"""
     async def dispatch(self, request: Request, call_next):
@@ -78,8 +78,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if IS_PRODUCTION:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
-        # Content Security Policy (restrictive)
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        # ✅ FIXED: Content Security Policy
+        # Different CSP for /docs vs API endpoints
+        if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
+            # Relaxed CSP for API documentation (development only)
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com https://cdn.jsdelivr.net; "
+                "font-src 'self' data:; "
+                "connect-src 'self'"
+            )
+        else:
+            # Strict CSP for API endpoints (production)
+            response.headers["Content-Security-Policy"] = "default-src 'self'"
         
         # Control referrer information
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -90,11 +103,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# ✅ Add security headers middleware FIRST
+# Add security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
 
 
-# ✅ Request logging middleware
+# Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = datetime.utcnow()
@@ -127,15 +140,17 @@ async def root():
         "rag_knowledge": True,
         "ml_predictions": ML_ROUTER_AVAILABLE,
         "image_analysis": True,
-        "location_intelligence": True
+        "location_intelligence": True,
+        "bilingual_support": True  # New feature!
     }
     
     return {
         "message": "FarmBot Nova Backend Running",
         "status": "healthy",
         "version": "1.1.0",
-        "environment": os.getenv("ENVIRONMENT", "unknown"),
-        "features": features
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "features": features,
+        "docs": "/docs" if not IS_PRODUCTION else "disabled"
     }
 
 
@@ -175,6 +190,7 @@ async def health():
     checks["features"]["ml_predictions"] = ML_ROUTER_AVAILABLE
     checks["features"]["rag_knowledge"] = True
     checks["features"]["image_analysis"] = True
+    checks["features"]["bilingual_support"] = True
     
     status_code = 200 if checks["status"] == "healthy" else 503
     return JSONResponse(content=checks, status_code=status_code)
@@ -196,7 +212,7 @@ app.include_router(
     dependencies=[Depends(verify_api_key_with_rate_limit)]
 )
 
-# ✅ Add ML Crop Prediction Router (if available)
+# Add ML Crop Prediction Router (if available)
 if ML_ROUTER_AVAILABLE:
     app.include_router(
         crop_router,
@@ -207,7 +223,7 @@ else:
     logger.warning("⚠️ ML Crop Prediction routes disabled (service not available)")
 
 
-# ✅ PRODUCTION: Secure admin endpoint with strong secret
+# Admin endpoint
 ADMIN_SECRET = os.getenv("ADMIN_SECRET")
 
 if not ADMIN_SECRET:
@@ -221,7 +237,6 @@ if not ADMIN_SECRET:
 async def generate_new_api_key(admin_secret: str):
     """
     Generate a new API key (admin only).
-    ⚠️ PRODUCTION: Protect this endpoint with IP whitelisting
     """
     if admin_secret != ADMIN_SECRET:
         logger.warning("Unauthorized admin access attempt")
@@ -240,13 +255,12 @@ async def generate_new_api_key(admin_secret: str):
     }
 
 
-# ✅ Global exception handler - Never expose internal errors
+# Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch all unhandled exceptions"""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     
-    # Don't expose internal error details in production
     if IS_PRODUCTION:
         return JSONResponse(
             status_code=500,
@@ -256,7 +270,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             }
         )
     else:
-        # Show details in development
         return JSONResponse(
             status_code=500,
             content={
@@ -298,11 +311,12 @@ async def rate_limit_handler(request, exc):
 async def startup_event():
     logger.info("=" * 50)
     logger.info("🚀 FarmBot Nova Backend v1.1.0 Starting")
-    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'unknown')}")
+    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
     logger.info(f"CORS Origins: {ALLOWED_ORIGINS}")
-    logger.info(f"API Docs: {'DISABLED' if IS_PRODUCTION else 'ENABLED'}")
+    logger.info(f"API Docs: {'ENABLED at /docs ✓' if not IS_PRODUCTION else 'DISABLED (production) ⚠️'}")
     logger.info(f"Security Headers: ENABLED")
     logger.info(f"ML Predictions: {'ENABLED ✓' if ML_ROUTER_AVAILABLE else 'DISABLED ⚠️'}")
+    logger.info(f"Bilingual Support: ENABLED ✓")
     logger.info("=" * 50)
 
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FarmBot Nova - Smart Farming Assistant</title>
+    <title>FarmBot Nova - स्मार्ट खेती सहायक</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
@@ -19,6 +19,33 @@
             padding: 20px;
         }
 
+        /* Language Toggle Button */
+        .lang-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s;
+        }
+
+        .lang-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .lang-toggle:active {
+            transform: translateY(0);
+        }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -28,6 +55,7 @@
             text-align: center;
             color: white;
             margin-bottom: 30px;
+            margin-top: 60px;
         }
 
         .header h1 {
@@ -40,6 +68,17 @@
             opacity: 0.7;
         }
 
+        .lang-badge {
+            display: inline-block;
+            background: rgba(102, 126, 234, 0.2);
+            color: #667eea;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            border: 1px solid #667eea;
+        }
+
         .api-key-setup {
             background: #1a1a1a;
             border: 2px solid #f00;
@@ -47,40 +86,6 @@
             padding: 25px;
             margin-bottom: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-
-        .api-key-setup h3 {
-            color: #f00;
-            margin-bottom: 15px;
-        }
-
-        .api-key-setup p {
-            color: #aaa;
-            margin-bottom: 20px;
-        }
-
-        .api-key-info {
-            background: #0a0a0a;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 15px;
-        }
-
-        .api-key-info p {
-            color: #aaa;
-            font-size: 0.9rem;
-            margin: 5px 0;
-        }
-
-        .api-key-info strong {
-            color: #fff;
-        }
-
-        .btn-logout {
-            background: #f00;
-            color: #fff;
-            margin-top: 10px;
         }
 
         .main-content {
@@ -102,12 +107,6 @@
             color: #fff;
             margin-bottom: 20px;
             font-size: 1.5rem;
-        }
-
-        .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
         }
 
         .input-group {
@@ -134,23 +133,18 @@
 
         .input-group input:focus, .input-group textarea:focus {
             outline: none;
-            border-color: #555;
+            border-color: #667eea;
         }
 
         .input-group textarea {
             resize: vertical;
-            min-height: 80px;
-        }
-
-        .coords-group {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            min-height: 100px;
+            font-family: inherit;
         }
 
         .btn {
-            background: #fff;
-            color: #000;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
             border: none;
             padding: 15px 30px;
             border-radius: 8px;
@@ -163,11 +157,7 @@
 
         .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(255, 255, 255, 0.3);
-        }
-
-        .btn:active {
-            transform: translateY(0);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
         }
 
         .btn:disabled {
@@ -175,66 +165,6 @@
             color: #888;
             cursor: not-allowed;
             transform: none;
-        }
-
-        .btn-secondary {
-            background: #333;
-            color: #fff;
-            font-size: 0.9rem;
-            padding: 10px 20px;
-            margin-top: 10px;
-        }
-
-        .btn-secondary:hover {
-            background: #444;
-        }
-
-        .user-info {
-            background: #0a0a0a;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid #333;
-        }
-
-        .user-info p {
-            color: #aaa;
-            font-size: 0.9rem;
-            margin: 5px 0;
-        }
-
-        .user-info strong {
-            color: #fff;
-        }
-
-        .loading {
-            display: none;
-            text-align: center;
-            margin-top: 10px;
-        }
-
-        .loading.active {
-            display: block;
-        }
-
-        .spinner {
-            border: 3px solid #333;
-            border-top: 3px solid #fff;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .chat-container {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
         }
 
         .messages-area {
@@ -251,11 +181,17 @@
             margin-bottom: 20px;
             padding: 15px;
             border-radius: 8px;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .message.user {
             background: #1a1a1a;
-            border-left: 4px solid #fff;
+            border-left: 4px solid #667eea;
         }
 
         .message.assistant {
@@ -268,6 +204,17 @@
             font-size: 0.85rem;
             margin-bottom: 8px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .lang-indicator {
+            background: rgba(102, 126, 234, 0.2);
+            color: #667eea;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
         }
 
         .message-content {
@@ -275,128 +222,70 @@
             line-height: 1.6;
         }
 
-        .message-image {
-            max-width: 300px;
-            border-radius: 8px;
-            margin-top: 10px;
-            border: 2px solid #333;
+        .hindi-text {
+            font-size: 1.05rem;
+            line-height: 1.8;
         }
 
-        .rag-info {
-            background: #1a2a1a;
-            border: 1px solid #2a4a2a;
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #333;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .language-hints {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid #667eea;
             border-radius: 8px;
             padding: 12px;
-            margin-top: 12px;
+            margin-top: 10px;
+            color: #aaa;
             font-size: 0.85rem;
         }
 
-        .rag-info-header {
-            color: #6fc276;
-            font-weight: 600;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
+        .language-hints strong {
+            color: #667eea;
+        }
+
+        .example-queries {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 8px;
-        }
-
-        .rag-badge {
-            background: #2a4a2a;
-            color: #6fc276;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-        }
-
-        .rag-sources {
             margin-top: 8px;
         }
 
-        .rag-source-item {
-            background: #0f1f0f;
-            border-left: 3px solid #4fc3f7;
+        .example-query {
+            background: #0a0a0a;
+            border: 1px solid #333;
             padding: 8px;
-            margin: 6px 0;
-            border-radius: 4px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
         }
 
-        .rag-source-header {
-            color: #6fc276;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .rag-source-meta {
-            color: #888;
-            font-size: 0.75rem;
-            margin-bottom: 4px;
-        }
-
-        .rag-source-text {
-            color: #aaa;
-            font-size: 0.8rem;
-            line-height: 1.4;
-        }
-
-        .web-source-item {
+        .example-query:hover {
+            border-color: #667eea;
             background: #1a1a2a;
-            border-left: 3px solid #f7a14f;
-            padding: 8px;
-            margin: 6px 0;
-            border-radius: 4px;
-        }
-
-        .web-source-header {
-            color: #f7a14f;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .web-source-url {
-            color: #4fc3f7;
-            font-size: 0.75rem;
-            margin-bottom: 4px;
-            text-decoration: none;
-        }
-
-        .web-source-url:hover {
-            text-decoration: underline;
-        }
-
-        .message-content h1, .message-content h2, .message-content h3, 
-        .message-content h4, .message-content h5, .message-content h6 {
-            color: #fff;
-            margin-top: 1em;
-            margin-bottom: 0.5em;
-        }
-
-        .message-content h1 { font-size: 1.8em; }
-        .message-content h2 { font-size: 1.5em; }
-        .message-content h3 { font-size: 1.3em; }
-
-        .message-content p {
-            margin-bottom: 1em;
-        }
-
-        .message-content ul, .message-content ol {
-            margin-left: 1.5em;
-            margin-bottom: 1em;
-        }
-
-        .message-content li {
-            margin-bottom: 0.5em;
-        }
-
-        .message-content strong {
-            color: #fff;
-            font-weight: 600;
-        }
-
-        .message-content code {
-            background: #1a1a1a;
-            padding: 2px 6px;
-            border-radius: 3px;
-            color: #4fc3f7;
         }
 
         .error {
@@ -413,101 +302,6 @@
             display: block;
         }
 
-        .success {
-            background: #0a2a0a;
-            border-left: 4px solid #0f0;
-            padding: 15px;
-            border-radius: 5px;
-            color: #6bff6b;
-            display: none;
-            margin-bottom: 15px;
-        }
-
-        .success.active {
-            display: block;
-        }
-
-        .note-text {
-            margin-top: 10px;
-            color: #666;
-            font-size: 0.9rem;
-        }
-
-        .context-toggle {
-            background: #333;
-            color: #fff;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            margin-top: 10px;
-        }
-
-        .context-data {
-            background: #0a0a0a;
-            padding: 10px;
-            border: 1px solid #333;
-            border-radius: 5px;
-            overflow-x: auto;
-            display: none;
-            font-family: 'Courier New', monospace;
-            font-size: 0.75rem;
-            margin-top: 10px;
-            max-height: 200px;
-        }
-
-        .context-data.active {
-            display: block;
-        }
-
-        .json-key { color: #9cdcfe; }
-        .json-string { color: #ce9178; }
-        .json-number { color: #b5cea8; }
-        .json-boolean { color: #569cd6; }
-        .json-null { color: #569cd6; }
-
-        .image-upload-section {
-            background: #0a0a0a;
-            border: 2px dashed #333;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            cursor: pointer;
-            transition: border-color 0.3s;
-        }
-
-        .image-upload-section:hover {
-            border-color: #555;
-        }
-
-        .image-upload-section.active {
-            border-color: #4fc3f7;
-            background: #0f1f2a;
-        }
-
-        .image-preview {
-            max-width: 100%;
-            max-height: 200px;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-
-        .remove-image {
-            background: #f00;
-            color: #fff;
-            border: none;
-            padding: 5px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            margin-top: 10px;
-        }
-
-        #imageInput {
-            display: none;
-        }
-
         @media (max-width: 968px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -516,31 +310,41 @@
             .header h1 {
                 font-size: 2rem;
             }
+
+            .lang-toggle {
+                top: 10px;
+                right: 10px;
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+
+            .header {
+                margin-top: 50px;
+            }
         }
     </style>
 </head>
 <body>
+    <button class="lang-toggle" id="langToggle">🌐 हिंदी</button>
+
     <div class="container">
         <div class="header">
-            <h1>🌾 FarmBot Nova</h1>
-            <p>Your AI-Powered Agricultural Assistant with Memory & Vision</p>
+            <h1 id="headerTitle">🌾 FarmBot Nova</h1>
+            <p id="headerSubtitle">Your AI-Powered Agricultural Assistant</p>
+            <span class="lang-badge" id="currentLang">Language: Auto-detect</span>
         </div>
 
         <div class="error" id="error"></div>
-        <div class="success" id="success"></div>
 
         <!-- API Key Setup -->
         <div class="api-key-setup" id="apiKeySetup" style="display: none;">
-            <h3>🔐 API Key Required</h3>
-            <p>To use FarmBot Nova, you need an API key. Contact your administrator to get one.</p>
+            <h3 id="apiKeyTitle">🔐 API Key Required</h3>
+            <p id="apiKeyDesc">To use FarmBot Nova, you need an API key. Contact your administrator to get one.</p>
             <div class="input-group">
-                <label for="apiKeyInput">Enter Your API Key</label>
+                <label for="apiKeyInput" id="apiKeyLabel">Enter Your API Key</label>
                 <input type="password" id="apiKeyInput" placeholder="paste-your-api-key-here">
             </div>
             <button class="btn" id="saveApiKeyBtn">Save API Key</button>
-            <p style="color: #666; font-size: 0.85rem; margin-top: 10px;">
-                Your API key will be stored securely in your browser's local storage.
-            </p>
         </div>
 
         <!-- Main App -->
@@ -549,74 +353,53 @@
                 <!-- Sidebar -->
                 <div class="sidebar">
                     <div class="card">
-                        <h2>👤 User Settings</h2>
+                        <h2 id="userSettingsTitle">👤 User Settings</h2>
                         <div class="input-group">
-                            <label for="authId">Your Auth ID</label>
+                            <label for="authId" id="authIdLabel">Your Auth ID</label>
                             <input type="text" id="authId" placeholder="e.g., 7659753">
                         </div>
                         <button class="btn" id="setAuthBtn">Set Auth ID</button>
-                        <div class="user-info" id="userInfo" style="display: none; margin-top: 15px;">
-                            <p><strong>Auth ID:</strong> <span id="displayAuthId">-</span></p>
-                            <p><strong>Conversation ID:</strong> <span id="displayConvId">-</span></p>
-                            <p><strong>Messages:</strong> <span id="messageCount">0</span></p>
+                        <div style="display: none; margin-top: 15px; background: #0a0a0a; padding: 15px; border-radius: 8px;" id="userInfo">
+                            <p style="color: #aaa; font-size: 0.9rem;"><strong style="color: #fff;">Auth ID:</strong> <span id="displayAuthId">-</span></p>
+                            <p style="color: #aaa; font-size: 0.9rem;"><strong style="color: #fff;">Messages:</strong> <span id="messageCount">0</span></p>
                         </div>
-                        <button class="btn btn-secondary" id="newConvBtn" style="display: none;">Start New Conversation</button>
                     </div>
 
                     <div class="card">
-                        <h2>📍 Location</h2>
-                        <div class="coords-group">
-                            <div class="input-group">
-                                <label for="latitude">Latitude</label>
-                                <input type="number" id="latitude" step="0.000001" placeholder="25.5941">
-                            </div>
-                            <div class="input-group">
-                                <label for="longitude">Longitude</label>
-                                <input type="number" id="longitude" step="0.000001" placeholder="85.1376">
+                        <h2 id="langSettingsTitle">🌍 Language Settings</h2>
+                        <div class="language-hints">
+                            <strong id="autoDetectTitle">Auto-Detection Enabled</strong>
+                            <p id="autoDetectDesc" style="margin-top: 8px;">FarmBot automatically detects your language and responds accordingly.</p>
+                            
+                            <div class="example-queries">
+                                <div class="example-query" onclick="setExampleQuery('What fertilizer is best for wheat?')">
+                                    🇬🇧 English Example
+                                </div>
+                                <div class="example-query" onclick="setExampleQuery('गेहूं के लिए कौन सी खाद अच्छी है?')">
+                                    🇮🇳 हिंदी उदाहरण
+                                </div>
                             </div>
                         </div>
-                        <p class="note-text">Optional - uses sensor location if empty</p>
-                    </div>
-
-                    <div class="card">
-                        <h2>🔐 API Key Status</h2>
-                        <div class="api-key-info">
-                            <p><strong>Status:</strong> <span style="color: #0f0;">✓ Active</span></p>
-                            <p><strong>Key:</strong> <span id="maskedApiKey">••••••••</span></p>
-                        </div>
-                        <button class="btn btn-secondary btn-logout" id="logoutBtn">Logout & Clear Key</button>
                     </div>
                 </div>
 
                 <!-- Chat Area -->
-                <div class="card chat-container">
-                    <h2>💬 Chat with FarmBot</h2>
+                <div class="card">
+                    <h2 id="chatTitle">💬 Chat with FarmBot</h2>
                     
                     <div class="messages-area" id="messagesArea">
-                        <p style="color: #666; text-align: center;">Set your Auth ID to start chatting...</p>
-                    </div>
-
-                    <!-- Image Upload -->
-                    <div class="image-upload-section" id="imageUploadSection">
-                        <p style="color: #aaa;">📸 Click to upload image (optional)</p>
-                        <p style="color: #666; font-size: 0.85rem; margin-top: 5px;">Crop diseases, plant health, soil analysis, pests, weeds</p>
-                        <input type="file" id="imageInput" accept="image/jpeg,image/jpg,image/png,image/webp">
-                        <div id="imagePreviewContainer" style="display: none;">
-                            <img id="imagePreview" class="image-preview" alt="Preview">
-                            <br>
-                            <button class="remove-image" id="removeImageBtn">Remove Image</button>
-                        </div>
+                        <p style="color: #666; text-align: center;" id="welcomeMsg">Set your Auth ID to start chatting...</p>
                     </div>
 
                     <div class="input-group">
-                        <textarea id="query" placeholder="Ask me anything about farming or describe your image..." disabled></textarea>
+                        <textarea id="query" placeholder="Ask me anything about farming..." disabled></textarea>
                     </div>
                     
                     <button class="btn" id="askBtn" disabled>Send Message</button>
                     
                     <div class="loading" id="loading">
                         <div class="spinner"></div>
-                        <p style="margin-top: 10px; color: #aaa;">Thinking...</p>
+                        <p style="margin-top: 10px; color: #aaa;" id="thinkingMsg">Thinking...</p>
                     </div>
                 </div>
             </div>
@@ -630,69 +413,89 @@
         let apiKey = null;
         let currentAuthId = null;
         let currentConvId = null;
-        let selectedImage = null;
+        let currentUILang = 'en'; // UI language (not query language)
 
-        const elements = {
-            apiKeySetup: document.getElementById('apiKeySetup'),
-            apiKeyInput: document.getElementById('apiKeyInput'),
-            saveApiKeyBtn: document.getElementById('saveApiKeyBtn'),
-            mainApp: document.getElementById('mainApp'),
-            authId: document.getElementById('authId'),
-            setAuthBtn: document.getElementById('setAuthBtn'),
-            newConvBtn: document.getElementById('newConvBtn'),
-            userInfo: document.getElementById('userInfo'),
-            displayAuthId: document.getElementById('displayAuthId'),
-            displayConvId: document.getElementById('displayConvId'),
-            messageCount: document.getElementById('messageCount'),
-            askBtn: document.getElementById('askBtn'),
-            loading: document.getElementById('loading'),
-            query: document.getElementById('query'),
-            latitude: document.getElementById('latitude'),
-            longitude: document.getElementById('longitude'),
-            messagesArea: document.getElementById('messagesArea'),
-            error: document.getElementById('error'),
-            success: document.getElementById('success'),
-            imageInput: document.getElementById('imageInput'),
-            imageUploadSection: document.getElementById('imageUploadSection'),
-            imagePreviewContainer: document.getElementById('imagePreviewContainer'),
-            imagePreview: document.getElementById('imagePreview'),
-            removeImageBtn: document.getElementById('removeImageBtn'),
-            maskedApiKey: document.getElementById('maskedApiKey'),
-            logoutBtn: document.getElementById('logoutBtn')
+        const translations = {
+            en: {
+                headerTitle: '🌾 FarmBot Nova',
+                headerSubtitle: 'Your AI-Powered Agricultural Assistant',
+                currentLang: 'Language: Auto-detect',
+                apiKeyTitle: '🔐 API Key Required',
+                apiKeyDesc: 'To use FarmBot Nova, you need an API key.',
+                apiKeyLabel: 'Enter Your API Key',
+                userSettingsTitle: '👤 User Settings',
+                authIdLabel: 'Your Auth ID',
+                langSettingsTitle: '🌍 Language Settings',
+                autoDetectTitle: 'Auto-Detection Enabled',
+                autoDetectDesc: 'FarmBot automatically detects your language and responds accordingly.',
+                chatTitle: '💬 Chat with FarmBot',
+                welcomeMsg: 'Set your Auth ID to start chatting...',
+                thinkingMsg: 'Thinking...',
+                queryPlaceholder: 'Ask me anything about farming...',
+                langToggleBtn: '🌐 हिंदी'
+            },
+            hi: {
+                headerTitle: '🌾 फार्मबोट नोवा',
+                headerSubtitle: 'आपका AI-संचालित कृषि सहायक',
+                currentLang: 'भाषा: स्वतः पहचान',
+                apiKeyTitle: '🔐 API कुंजी आवश्यक',
+                apiKeyDesc: 'फार्मबोट नोवा उपयोग के लिए API कुंजी चाहिए।',
+                apiKeyLabel: 'अपनी API कुंजी दर्ज करें',
+                userSettingsTitle: '👤 उपयोगकर्ता सेटिंग्स',
+                authIdLabel: 'आपकी Auth ID',
+                langSettingsTitle: '🌍 भाषा सेटिंग्स',
+                autoDetectTitle: 'स्वतः पहचान सक्षम',
+                autoDetectDesc: 'फार्मबोट आपकी भाषा स्वतः पहचानता है और उसी में जवाब देता है।',
+                chatTitle: '💬 फार्मबोट से बात करें',
+                welcomeMsg: 'चैट शुरू करने के लिए अपनी Auth ID सेट करें...',
+                thinkingMsg: 'सोच रहा है...',
+                queryPlaceholder: 'खेती के बारे में कुछ भी पूछें...',
+                langToggleBtn: '🌐 English'
+            }
         };
+
+        function toggleUILanguage() {
+            currentUILang = currentUILang === 'en' ? 'hi' : 'en';
+            const t = translations[currentUILang];
+
+            document.getElementById('langToggle').textContent = t.langToggleBtn;
+            document.getElementById('headerTitle').textContent = t.headerTitle;
+            document.getElementById('headerSubtitle').textContent = t.headerSubtitle;
+            document.getElementById('currentLang').textContent = t.currentLang;
+            document.getElementById('apiKeyTitle').textContent = t.apiKeyTitle;
+            document.getElementById('apiKeyDesc').textContent = t.apiKeyDesc;
+            document.getElementById('apiKeyLabel').textContent = t.apiKeyLabel;
+            document.getElementById('userSettingsTitle').textContent = t.userSettingsTitle;
+            document.getElementById('authIdLabel').textContent = t.authIdLabel;
+            document.getElementById('langSettingsTitle').textContent = t.langSettingsTitle;
+            document.getElementById('autoDetectTitle').textContent = t.autoDetectTitle;
+            document.getElementById('autoDetectDesc').textContent = t.autoDetectDesc;
+            document.getElementById('chatTitle').textContent = t.chatTitle;
+            document.getElementById('welcomeMsg').textContent = t.welcomeMsg;
+            document.getElementById('thinkingMsg').textContent = t.thinkingMsg;
+            document.getElementById('query').placeholder = t.queryPlaceholder;
+        }
+
+        document.getElementById('langToggle').addEventListener('click', toggleUILanguage);
+
+        function setExampleQuery(text) {
+            document.getElementById('query').value = text;
+        }
 
         function checkApiKey() {
             apiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
             
             if (apiKey) {
-                elements.apiKeySetup.style.display = 'none';
-                elements.mainApp.style.display = 'block';
-                elements.maskedApiKey.textContent = '••••' + apiKey.slice(-4);
-                testApiKey();
+                document.getElementById('apiKeySetup').style.display = 'none';
+                document.getElementById('mainApp').style.display = 'block';
             } else {
-                elements.apiKeySetup.style.display = 'block';
-                elements.mainApp.style.display = 'none';
+                document.getElementById('apiKeySetup').style.display = 'block';
+                document.getElementById('mainApp').style.display = 'none';
             }
         }
 
-        async function testApiKey() {
-            try {
-                const response = await fetch(`${API_BASE}/health`, {
-                    headers: { 'X-API-Key': apiKey }
-                });
-                
-                if (response.status === 401) {
-                    showError('Invalid API key. Please enter a valid key.');
-                    localStorage.removeItem(API_KEY_STORAGE_KEY);
-                    checkApiKey();
-                }
-            } catch (error) {
-                console.error('API key test failed:', error);
-            }
-        }
-
-        elements.saveApiKeyBtn.addEventListener('click', () => {
-            const keyInput = elements.apiKeyInput.value.trim();
+        document.getElementById('saveApiKeyBtn').addEventListener('click', () => {
+            const keyInput = document.getElementById('apiKeyInput').value.trim();
             
             if (!keyInput) {
                 showError('Please enter an API key');
@@ -701,47 +504,11 @@
 
             localStorage.setItem(API_KEY_STORAGE_KEY, keyInput);
             apiKey = keyInput;
-            
-            showSuccess('API key saved! Testing connection...');
-            setTimeout(() => hideSuccess(), 3000);
             checkApiKey();
         });
 
-        elements.logoutBtn.addEventListener('click', () => {
-            if (confirm('Are you sure you want to logout and clear your API key?')) {
-                localStorage.removeItem(API_KEY_STORAGE_KEY);
-                apiKey = null;
-                currentAuthId = null;
-                currentConvId = null;
-                checkApiKey();
-                showSuccess('Logged out successfully');
-                setTimeout(() => hideSuccess(), 2000);
-            }
-        });
-
-        async function authenticatedFetch(url, options = {}) {
-            if (!apiKey) throw new Error('No API key available');
-
-            options.headers = { ...options.headers, 'X-API-Key': apiKey };
-            const response = await fetch(url, options);
-
-            if (response.status === 401) {
-                showError('API key expired or invalid. Please re-enter.');
-                localStorage.removeItem(API_KEY_STORAGE_KEY);
-                checkApiKey();
-                throw new Error('Unauthorized');
-            }
-
-            if (response.status === 429) {
-                showError('Rate limit exceeded. Please wait a minute.');
-                throw new Error('Rate limited');
-            }
-
-            return response;
-        }
-
-        elements.setAuthBtn.addEventListener('click', () => {
-            const authId = elements.authId.value.trim();
+        document.getElementById('setAuthBtn').addEventListener('click', () => {
+            const authId = document.getElementById('authId').value.trim();
             
             if (!authId) {
                 showError('Please enter an Auth ID!');
@@ -751,75 +518,26 @@
             currentAuthId = authId;
             currentConvId = null;
             
-            elements.userInfo.style.display = 'block';
-            elements.newConvBtn.style.display = 'block';
-            elements.displayAuthId.textContent = authId;
-            elements.displayConvId.textContent = 'New conversation';
-            elements.messageCount.textContent = '0';
+            document.getElementById('userInfo').style.display = 'block';
+            document.getElementById('displayAuthId').textContent = authId;
+            document.getElementById('messageCount').textContent = '0';
             
-            elements.query.disabled = false;
-            elements.askBtn.disabled = false;
+            document.getElementById('query').disabled = false;
+            document.getElementById('askBtn').disabled = false;
             
-            elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
-            hideError();
+            document.getElementById('messagesArea').innerHTML = '<p style="color: #666; text-align: center;">Start chatting...</p>';
         });
 
-        elements.newConvBtn.addEventListener('click', () => {
-            if (!currentAuthId) return;
+        document.getElementById('askBtn').addEventListener('click', async () => {
+            const query = document.getElementById('query').value.trim();
             
-            currentConvId = null;
-            elements.displayConvId.textContent = 'New conversation';
-            elements.messageCount.textContent = '0';
-            elements.messagesArea.innerHTML = '<p style="color: #666; text-align: center;">Start a new conversation by sending a message...</p>';
-        });
+            if (!query || !currentAuthId) return;
 
-        elements.imageUploadSection.addEventListener('click', () => {
-            elements.imageInput.click();
-        });
-
-        elements.imageInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                selectedImage = file;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    elements.imagePreview.src = e.target.result;
-                    elements.imagePreviewContainer.style.display = 'block';
-                    elements.imageUploadSection.classList.add('active');
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-
-        elements.removeImageBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            selectedImage = null;
-            elements.imageInput.value = '';
-            elements.imagePreviewContainer.style.display = 'none';
-            elements.imageUploadSection.classList.remove('active');
-        });
-
-        elements.askBtn.addEventListener('click', async () => {
-            const query = elements.query.value.trim();
+            addMessage('user', query);
+            document.getElementById('query').value = '';
             
-            if (!query) {
-                showError('Please enter a message!');
-                return;
-            }
-
-            if (!currentAuthId) {
-                showError('Please set your Auth ID first!');
-                return;
-            }
-
-            hideError();
-            
-            const imageUrl = selectedImage ? elements.imagePreview.src : null;
-            addMessage('user', query, null, imageUrl);
-            elements.query.value = '';
-            
-            elements.loading.classList.add('active');
-            elements.askBtn.disabled = true;
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('askBtn').disabled = true;
 
             try {
                 const formData = new FormData();
@@ -829,183 +547,76 @@
                 if (currentConvId) {
                     formData.append('conversation_id', currentConvId);
                 }
-                
-                const lat = elements.latitude.value.trim();
-                const lon = elements.longitude.value.trim();
-                
-                if (lat && lon) {
-                    formData.append('lat', lat);
-                    formData.append('lon', lon);
-                }
-                
-                if (selectedImage) {
-                    formData.append('image', selectedImage);
-                }
 
-                const response = await authenticatedFetch(`${API_BASE}/api/ai/ask`, {
+                const response = await fetch(`${API_BASE}/api/ai/ask`, {
                     method: 'POST',
+                    headers: { 'X-API-Key': apiKey },
                     body: formData
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                }
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
                 const data = await response.json();
                 
-                if (selectedImage) {
-                    selectedImage = null;
-                    elements.imageInput.value = '';
-                    elements.imagePreviewContainer.style.display = 'none';
-                    elements.imageUploadSection.classList.remove('active');
-                }
-                
                 if (!currentConvId) {
                     currentConvId = data.conversation_id;
-                    elements.displayConvId.textContent = currentConvId;
                 }
                 
-                if (data.message_count) {
-                    elements.messageCount.textContent = data.message_count;
-                }
+                document.getElementById('messageCount').textContent = data.message_count || 0;
                 
-                addMessage('assistant', data.answer, data.context_used, null, data.rag_info);
+                addMessage('assistant', data.answer, data.detected_language);
                 
             } catch (error) {
                 showError(`Error: ${error.message}`);
             } finally {
-                elements.loading.classList.remove('active');
-                elements.askBtn.disabled = false;
+                document.getElementById('loading').classList.remove('active');
+                document.getElementById('askBtn').disabled = false;
             }
         });
 
-        function addMessage(role, content, context = null, imageUrl = null, ragInfo = null) {
+        function addMessage(role, content, language = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
             
             const roleLabel = role === 'user' ? '👤 You' : '🤖 FarmBot';
             
-            let html = `<div class="message-role">${roleLabel}</div>`;
+            let langIndicator = '';
+            if (language) {
+                const langName = language === 'hindi' ? 'हिंदी' : 'English';
+                langIndicator = `<span class="lang-indicator">${langName}</span>`;
+            }
+            
+            let html = `<div class="message-role">${roleLabel} ${langIndicator}</div>`;
             
             if (role === 'assistant') {
-                html += `<div class="message-content">${marked.parse(content)}</div>`;
-                
-                if (ragInfo && ragInfo.success) {
-                    html += createRagInfoHTML(ragInfo);
-                }
-                
-                if (context) {
-                    const contextId = `context-${Date.now()}`;
-                    html += `
-                        <button class="context-toggle" onclick="toggleContext('${contextId}')">Show Full Context</button>
-                        <div class="context-data" id="${contextId}">${syntaxHighlight(JSON.stringify(context, null, 2))}</div>
-                    `;
-                }
+                const contentClass = language === 'hindi' ? 'message-content hindi-text' : 'message-content';
+                html += `<div class="${contentClass}">${marked.parse(content)}</div>`;
             } else {
-                html += `<div class="message-content">${content}</div>`;
-                if (imageUrl) {
-                    html += `<img src="${imageUrl}" class="message-image" alt="Uploaded image">`;
-                }
+                const contentClass = content.match(/[\u0900-\u097F]/) ? 'message-content hindi-text' : 'message-content';
+                html += `<div class="${contentClass}">${content}</div>`;
             }
             
             messageDiv.innerHTML = html;
             
-            if (elements.messagesArea.querySelector('p[style*="text-align: center"]')) {
-                elements.messagesArea.innerHTML = '';
+            const messagesArea = document.getElementById('messagesArea');
+            if (messagesArea.querySelector('p[style*="text-align: center"]')) {
+                messagesArea.innerHTML = '';
             }
             
-            elements.messagesArea.appendChild(messageDiv);
-            elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
-        }
-
-        function createRagInfoHTML(ragInfo) {
-            let html = '<div class="rag-info">';
-            
-            html += '<div class="rag-info-header">';
-            html += '🔍 Knowledge Sources';
-            html += `<span class="rag-badge">RAG: ${ragInfo.rag_chunks_count}</span>`;
-            if (ragInfo.used_web_search) {
-                html += `<span class="rag-badge">Web: ${ragInfo.web_results_count}</span>`;
-            }
-            html += '</div>';
-            
-            if (ragInfo.rag_sources && ragInfo.rag_sources.length > 0) {
-                html += '<div class="rag-sources">';
-                ragInfo.rag_sources.forEach((source) => {
-                    html += `<div class="rag-source-item">`;
-                    html += `<div class="rag-source-header">📚 ${source.source || 'Knowledge Base'}</div>`;
-                    html += `<div class="rag-source-meta">`;
-                    if (source.crop) html += `Crop: ${source.crop} | `;
-                    if (source.region) html += `Region: ${source.region} | `;
-                    html += `Relevance: ${(source.similarity * 100).toFixed(1)}%`;
-                    html += `</div>`;
-                    html += `<div class="rag-source-text">${source.text_preview}</div>`;
-                    html += `</div>`;
-                });
-                html += '</div>';
-            }
-            
-            if (ragInfo.web_sources && ragInfo.web_sources.length > 0) {
-                html += '<div class="rag-sources">';
-                ragInfo.web_sources.forEach((source) => {
-                    html += `<div class="web-source-item">`;
-                    html += `<div class="web-source-header">🌐 ${source.title}</div>`;
-                    html += `<a href="${source.url}" target="_blank" class="web-source-url">${source.url}</a>`;
-                    html += `<div class="rag-source-text">${source.content_preview}</div>`;
-                    html += `</div>`;
-                });
-                html += '</div>';
-            }
-            
-            html += '</div>';
-            return html;
-        }
-
-        window.toggleContext = function(contextId) {
-            const contextDiv = document.getElementById(contextId);
-            contextDiv.classList.toggle('active');
-        };
-
-        function syntaxHighlight(json) {
-            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-                let cls = 'json-number';
-                if (/^"/.test(match)) {
-                    if (/:$/.test(match)) {
-                        cls = 'json-key';
-                    } else {
-                        cls = 'json-string';
-                    }
-                } else if (/true|false/.test(match)) {
-                    cls = 'json-boolean';
-                } else if (/null/.test(match)) {
-                    cls = 'json-null';
-                }
-                return '<span class="' + cls + '">' + match + '</span>';
-            });
+            messagesArea.appendChild(messageDiv);
+            messagesArea.scrollTop = messagesArea.scrollHeight;
         }
 
         function showError(message) {
-            elements.error.textContent = message;
-            elements.error.classList.add('active');
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('active');
+            setTimeout(() => errorDiv.classList.remove('active'), 5000);
         }
 
-        function hideError() {
-            elements.error.classList.remove('active');
-        }
-
-        function showSuccess(message) {
-            elements.success.textContent = message;
-            elements.success.classList.add('active');
-        }
-
-        function hideSuccess() {
-            elements.success.classList.remove('active');
-        }
-
-        elements.query.addEventListener('keydown', (e) => {
+        document.getElementById('query').addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
-                elements.askBtn.click();
+                document.getElementById('askBtn').click();
             }
         });
 
