@@ -6,7 +6,6 @@ __pycache__/
 *.pyo
 *.pyd
 *.pdb
-*.pkl
 *.pklz
 *.so
 *.egg-info/
