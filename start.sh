@@ -83,7 +83,7 @@ PORT=${PORT:-8000}
 # Calculate optimal worker count
 # Render starter plan has 0.5 CPU, so use 2 workers
 # For higher plans: workers = 2 * CPU_cores + 1
-WORKERS=${WORKERS:-2}
+WORKERS=${WORKERS:-1}
 
 # ✅ PRODUCTION-GRADE SERVER CONFIGURATION
 exec gunicorn app.main:app \
