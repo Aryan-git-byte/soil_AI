@@ -1,58 +1,61 @@
-# app/services/soil_service.py - Production Ready
-import rasterio
+# app/services/soil_service.py - Production Ready (No Files Required)
 import os
 import logging
-from rasterio.windows import Window
 
 logger = logging.getLogger(__name__)
 
-# ✅ PRODUCTION: Load file paths from environment variables
+# Try to import rasterio, but don't fail if unavailable
+try:
+    import rasterio
+    from rasterio.windows import Window
+    RASTERIO_AVAILABLE = True
+except ImportError as e:
+    RASTERIO_AVAILABLE = False
+    logger.warning(f"⚠️ Rasterio not available: {e}")
+
+# Load environment variables
 SAND_FILE = os.getenv("SOIL_SAND_FILE")
 CLAY_FILE = os.getenv("SOIL_CLAY_FILE")
 SILT_FILE = os.getenv("SOIL_SILT_FILE")
 TEXTURE_FILE = os.getenv("SOIL_TEXTURE_FILE")
 
-# Validate that all files are configured
-REQUIRED_FILES = {
-    "SOIL_SAND_FILE": SAND_FILE,
-    "SOIL_CLAY_FILE": CLAY_FILE,
-    "SOIL_SILT_FILE": SILT_FILE,
-    "SOIL_TEXTURE_FILE": TEXTURE_FILE
-}
+# ✅ FIX: Only validate files if they're configured AND exist
+SOIL_FILES_CONFIGURED = all([SAND_FILE, CLAY_FILE, SILT_FILE, TEXTURE_FILE])
+SOIL_FILES_EXIST = False
 
-missing_files = [name for name, path in REQUIRED_FILES.items() if not path]
+if SOIL_FILES_CONFIGURED:
+    SOIL_FILES_EXIST = all([
+        os.path.exists(SAND_FILE),
+        os.path.exists(CLAY_FILE),
+        os.path.exists(SILT_FILE),
+        os.path.exists(TEXTURE_FILE)
+    ])
 
-if missing_files:
-    logger.error(f"❌ Missing soil data file paths: {', '.join(missing_files)}")
-    logger.error("Set these in .env file:")
-    for name in missing_files:
-        logger.error(f"  {name}=/path/to/file.tif")
-    raise RuntimeError("Soil data files not configured. Check logs for details.")
+# Initialize datasets only if everything is available
+sand_ds = None
+clay_ds = None
+silt_ds = None
+texture_ds = None
 
-# Validate that files exist
-for name, path in REQUIRED_FILES.items():
-    if not os.path.exists(path):
-        logger.error(f"❌ Soil data file not found: {name}={path}")
-        raise FileNotFoundError(f"Soil data file not found: {path}")
+if RASTERIO_AVAILABLE and SOIL_FILES_EXIST:
+    try:
+        sand_ds = rasterio.open(SAND_FILE)
+        clay_ds = rasterio.open(CLAY_FILE)
+        silt_ds = rasterio.open(SILT_FILE)
+        texture_ds = rasterio.open(TEXTURE_FILE)
+        logger.info("✓ Soil datasets loaded successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to load soil datasets: {e}")
+        sand_ds = clay_ds = silt_ds = texture_ds = None
+else:
+    if not RASTERIO_AVAILABLE:
+        logger.info("ℹ️ Soil analysis disabled: rasterio not available")
+    elif not SOIL_FILES_CONFIGURED:
+        logger.info("ℹ️ Soil analysis disabled: file paths not configured")
+    else:
+        logger.info("ℹ️ Soil analysis disabled: data files not found")
 
-logger.info("✓ All soil data files configured and found")
-
-# ----------------------------
-# LOAD DATASETS ONCE
-# ----------------------------
-try:
-    sand_ds = rasterio.open(SAND_FILE)
-    clay_ds = rasterio.open(CLAY_FILE)
-    silt_ds = rasterio.open(SILT_FILE)
-    texture_ds = rasterio.open(TEXTURE_FILE)
-    logger.info("✓ Soil datasets loaded successfully")
-except Exception as e:
-    logger.error(f"❌ Failed to load soil datasets: {e}")
-    raise
-
-# ----------------------------
 # USDA Texture Class Mapping
-# ----------------------------
 TEXTURE_MAP = {
     1: "Clay",
     2: "Silty Clay",
@@ -68,11 +71,11 @@ TEXTURE_MAP = {
 }
 
 
-# ----------------------------
-# READ 1 PIXEL SAFELY
-# ----------------------------
 def get_pixel(ds, lat, lon):
     """Extract pixel value from raster dataset"""
+    if ds is None:
+        return None
+    
     try:
         row, col = ds.index(lon, lat)
         window = Window(col, row, 1, 1)
@@ -83,18 +86,28 @@ def get_pixel(ds, lat, lon):
         
         return float(value)
     except Exception as e:
-        logger.warning(f"Failed to get pixel at ({lat}, {lon}): {e}")
+        logger.debug(f"Failed to get pixel at ({lat}, {lon}): {e}")
         return None
 
 
-# ----------------------------
-# MAIN FUNCTION
-# ----------------------------
 def get_soil_physical(lat: float, lon: float):
     """
     Get soil physical properties at given coordinates.
     Returns dict with sand/clay/silt percentages and texture class.
     """
+    # Check if soil data is available
+    if not all([sand_ds, clay_ds, silt_ds, texture_ds]):
+        return {
+            "sand_percent": None,
+            "clay_percent": None,
+            "silt_percent": None,
+            "texture": "Not Available",
+            "depth_cm": "0-5",
+            "source": "OpenLandMap 250m (0–5 cm Depth)",
+            "available": False,
+            "note": "Soil data files not available on this server"
+        }
+    
     try:
         sand = get_pixel(sand_ds, lat, lon)
         clay = get_pixel(clay_ds, lat, lon)
@@ -113,7 +126,8 @@ def get_soil_physical(lat: float, lon: float):
             "silt_percent": silt,
             "texture": texture,
             "depth_cm": "0-5",
-            "source": "OpenLandMap 250m (0–5 cm Depth)"
+            "source": "OpenLandMap 250m (0–5 cm Depth)",
+            "available": True
         }
     except Exception as e:
         logger.error(f"Error getting soil data for ({lat}, {lon}): {e}")
@@ -121,16 +135,14 @@ def get_soil_physical(lat: float, lon: float):
             "sand_percent": None,
             "clay_percent": None,
             "silt_percent": None,
-            "texture": "Unknown",
+            "texture": "Error",
             "depth_cm": "0-5",
             "source": "OpenLandMap 250m (0–5 cm Depth)",
+            "available": False,
             "error": str(e)
         }
 
 
-# ----------------------------
-# INDIAN SOIL TYPE CLASSIFICATION
-# ----------------------------
 def classify_indian_soil_type(
     sand_percent: float,
     clay_percent: float,
@@ -141,23 +153,15 @@ def classify_indian_soil_type(
 ) -> dict:
     """
     Classifies soil into Indian soil types based on physical properties and location.
-    
-    Indian Soil Types:
-    1. Alluvial Soil - Most widespread, fertile, found in plains (Gangetic, coastal)
-    2. Black Soil (Regur) - Good for cotton, deep, clayey (Deccan plateau)
-    3. Red & Yellow Soil - Common in Peninsular India, reddish hue
-    4. Laterite Soil - Found in high rainfall areas, leached (Western Ghats, Northeast)
-    5. Arid/Desert Soil - Sandy, low organic matter (Rajasthan, Gujarat)
-    6. Forest/Mountain Soil - Varies by altitude and vegetation (Himalayas, hilly regions)
-    7. Saline & Alkaline Soil - High salt content (Punjab, Haryana, coastal areas)
-    8. Peaty & Marshy Soil - Organic-rich, in wetlands (Kerala backwaters, Sundarbans)
     """
     
     if sand_percent is None or clay_percent is None or silt_percent is None:
         return {
-            "indian_soil_type": "Unknown",
-            "confidence": "Low",
-            "description": "Insufficient data for classification"
+            "indian_soil_type": "Data Not Available",
+            "confidence": "N/A",
+            "description": "Soil classification unavailable - missing soil composition data",
+            "characteristics": [],
+            "available": False
         }
     
     soil_type = "Unknown"
@@ -326,5 +330,6 @@ def classify_indian_soil_type(
             "silt_percent": round(silt_percent, 1),
             "texture": texture,
             "region_considered": lat is not None and lon is not None
-        }
+        },
+        "available": True
     }
