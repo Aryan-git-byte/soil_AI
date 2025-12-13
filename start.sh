@@ -93,7 +93,6 @@ exec gunicorn app.main:app \
     --max-requests 1000 \
     --max-requests-jitter 50 \
     --timeout 30 \
-    --keepalive 5 \
     --graceful-timeout 30 \
     --preload \
     --log-level info \
