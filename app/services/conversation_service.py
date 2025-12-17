@@ -96,11 +96,28 @@ class ConversationService:
             return []
 
     @staticmethod
-    async def delete_conversation(conversation_id: str):
+    async def delete_conversation_if_owner(conversation_id: str, auth_id: str):
         """
-        Delete all messages in a conversation.
+        Delete all messages in a conversation ONLY IF the auth_id matches the owner.
+        Fixes CWE-639 (Insecure Direct Object Reference)
         """
         try:
+            # 1. Check ownership
+            # Fetch just one record to verify auth_id matches
+            check_result = supabase.table("conversation_history") \
+                .select("auth_id") \
+                .eq("conversation_id", conversation_id) \
+                .limit(1) \
+                .execute()
+            
+            if not check_result.data:
+                return False # Conversation doesn't exist
+                
+            if check_result.data[0]["auth_id"] != auth_id:
+                print(f"[Security] Unauthorized delete attempt by {auth_id} on {conversation_id}")
+                return False # Not the owner
+
+            # 2. Proceed with delete
             result = supabase.table("conversation_history") \
                 .delete() \
                 .eq("conversation_id", conversation_id) \

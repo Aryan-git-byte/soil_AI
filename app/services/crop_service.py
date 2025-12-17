@@ -2,20 +2,62 @@
 import pickle
 import numpy as np
 import os
+import hashlib
+import logging
 from typing import Dict, List
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 class CropPredictionService:
     """Integrates Smart Harvest ML model into FarmBot"""
     
+    # Hashes should ideally be loaded from environment variables or a secure config
+    # For now, these must be set to the actual SHA256 hashes of your valid .pkl files
+    EXPECTED_MODEL_HASH = os.getenv("MODEL_HASH", "replace_with_actual_sha256_hash_of_model_pkl")
+    EXPECTED_LABELS_HASH = os.getenv("LABELS_HASH", "replace_with_actual_sha256_hash_of_labels_pkl")
+    
     def __init__(self):
-        model_path = os.path.join(os.path.dirname(__file__), "../ml_models/Model.pkl")
-        labels_path = os.path.join(os.path.dirname(__file__), "../ml_models/labels.pkl")
+        self.model_path = os.path.join(os.path.dirname(__file__), "../ml_models/Model.pkl")
+        self.labels_path = os.path.join(os.path.dirname(__file__), "../ml_models/labels.pkl")
         
-        with open(model_path, 'rb') as f:
-            self.model = pickle.load(f)
+        self.model = self._safe_load_pickle(self.model_path, self.EXPECTED_MODEL_HASH)
+        self.labels = self._safe_load_pickle(self.labels_path, self.EXPECTED_LABELS_HASH)
+    
+    def _safe_load_pickle(self, file_path: str, expected_hash: str):
+        """
+        Safely load a pickle file by verifying its SHA256 hash first.
+        Prevents insecure deserialization attacks.
+        """
+        if not os.path.exists(file_path):
+            logger.error(f"ML model file not found: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # specific check to allow development without hashes, strictly warn in production
+        if expected_hash.startswith("replace_with"):
+             if os.getenv("ENVIRONMENT") == "production":
+                 logger.critical(f"SECURITY ALERT: Model hash verification skipped for {file_path} in PRODUCTION. Set MODEL_HASH/LABELS_HASH.")
+                 # In strict mode, you might want to raise an error here
+             else:
+                 logger.warning(f"Dev Mode: Skipping hash verification for {file_path}")
+                 with open(file_path, 'rb') as f:
+                     return pickle.load(f)
+
+        # Verify hash
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
         
-        with open(labels_path, 'rb') as f:
-            self.labels = pickle.load(f)
+        calculated_hash = sha256_hash.hexdigest()
+        
+        if calculated_hash != expected_hash:
+            logger.critical(f"SECURITY ALERT: Hash mismatch for {file_path}. Expected {expected_hash}, got {calculated_hash}")
+            raise ValueError(f"Integrity check failed for {file_path}. The file may have been tampered with.")
+            
+        # If hash matches, load safely
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
     
     def predict_crops(
         self,
@@ -33,7 +75,9 @@ class CropPredictionService:
         """
         Predict top crops using the Smart Harvest ML model
         """
-        
+        if not self.model or not self.labels:
+             return {"error": "ML Model not initialized correctly due to security or missing files."}
+
         # State/Season encoding (same as Smart Harvest)
         state_season_map = {
             "uttarpradesh": 0, "maharashtra": 1, "punjab": 2,

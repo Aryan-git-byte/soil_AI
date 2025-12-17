@@ -1,5 +1,5 @@
-# app/main.py - Fixed CSP for /docs to work properly
-from fastapi import FastAPI, Depends, Request
+# app/main.py - Security Fixes Implemented
+from fastapi import FastAPI, Depends, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -12,7 +12,10 @@ from app.routers import videos
 from app.core.security import verify_api_key_with_rate_limit, generate_api_key
 import os
 import logging
-from datetime import datetime
+import secrets
+import re
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 # Try to import ML router (optional)
 try:
@@ -61,11 +64,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# SECURITY MIDDLEWARES
+# ---------------------------------------------------------------------------
 
-# ✅ FIXED: Security Headers Middleware with proper CSP for /docs
+MAX_REQUEST_SIZE = 15 * 1024 * 1024  # 15MB limit
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add essential security headers to all responses"""
     async def dispatch(self, request: Request, call_next):
+        # 4. FIXED: Global File Upload Size Limit
+        if request.method in ["POST", "PUT", "PATCH"]:
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > MAX_REQUEST_SIZE:
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": "Request body too large. Max 15MB allowed."}
+                )
+
         response = await call_next(request)
         
         # Prevent MIME type sniffing
@@ -81,10 +97,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if IS_PRODUCTION:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
-        # ✅ FIXED: Content Security Policy
-        # Different CSP for /docs vs API endpoints
+        # Content Security Policy
         if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
-            # Relaxed CSP for API documentation (development only)
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
@@ -94,7 +108,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "connect-src 'self'"
             )
         else:
-            # Strict CSP for API endpoints (production)
             response.headers["Content-Security-Policy"] = "default-src 'self'"
         
         # Control referrer information
@@ -106,45 +119,63 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Add security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
-
 
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = datetime.utcnow()
-    
-    # Log request
     logger.info(f"→ {request.method} {request.url.path}")
-    
     try:
         response = await call_next(request)
-        
-        # Log response
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(
             f"← {request.method} {request.url.path} "
             f"status={response.status_code} duration={duration:.3f}s"
         )
-        
         return response
     except Exception as e:
         logger.error(f"✗ Request failed: {request.method} {request.url.path} - {e}")
         raise
 
+# 5. FIXED: Public Rate Limiter
+public_rate_limits = defaultdict(list)
+
+async def check_public_rate_limit(request: Request):
+    """Simple in-memory IP-based rate limiter for public endpoints"""
+    client_ip = request.client.host
+    now = datetime.now()
+    
+    # Keep requests from the last minute
+    cutoff = now - timedelta(minutes=1)
+    public_rate_limits[client_ip] = [
+        t for t in public_rate_limits[client_ip] if t > cutoff
+    ]
+    
+    # Limit: 100 requests per minute
+    if len(public_rate_limits[client_ip]) >= 100:
+        logger.warning(f"Public rate limit exceeded for IP: {client_ip}")
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+    
+    public_rate_limits[client_ip].append(now)
+
+# ---------------------------------------------------------------------------
+# ROUTES
+# ---------------------------------------------------------------------------
 
 # Public routes (no authentication required)
 @app.get("/")
-async def root():
+async def root(request: Request):
     """Public health check endpoint"""
+    await check_public_rate_limit(request) # Rate limited
+    
     features = {
         "ai_chatbot": True,
         "rag_knowledge": True,
         "ml_predictions": ML_ROUTER_AVAILABLE,
         "image_analysis": True,
         "location_intelligence": True,
-        "bilingual_support": True  # New feature!
+        "bilingual_support": True
     }
     
     return {
@@ -158,8 +189,10 @@ async def root():
 
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
     """Comprehensive health check for load balancers"""
+    await check_public_rate_limit(request) # Rate limited
+    
     from app.services.sensor_service import supabase
     from app.services.rag_service import qdrant_client, COLLECTION_NAME
     
@@ -200,41 +233,15 @@ async def health():
 
 
 # Protected routes (require API key + rate limiting)
-app.include_router(
-    ai_router,
-    dependencies=[Depends(verify_api_key_with_rate_limit)]
-)
-
-app.include_router(
-    location_router,
-    dependencies=[Depends(verify_api_key_with_rate_limit)]
-)
-
-app.include_router(
-    image_router,
-    dependencies=[Depends(verify_api_key_with_rate_limit)]
-)
-
-app.include_router(
-    weather_router,
-    dependencies=[Depends(verify_api_key_with_rate_limit)]
-)
-
-app.include_router(
-    sensors_router,
-    dependencies=[Depends(verify_api_key_with_rate_limit)]
-)
-
-app.include_router(
-    videos.router,
-    dependencies=[Depends(verify_api_key_with_rate_limit)]
-)
+app.include_router(ai_router, dependencies=[Depends(verify_api_key_with_rate_limit)])
+app.include_router(location_router, dependencies=[Depends(verify_api_key_with_rate_limit)])
+app.include_router(image_router, dependencies=[Depends(verify_api_key_with_rate_limit)])
+app.include_router(weather_router, dependencies=[Depends(verify_api_key_with_rate_limit)])
+app.include_router(sensors_router, dependencies=[Depends(verify_api_key_with_rate_limit)])
+app.include_router(videos.router, dependencies=[Depends(verify_api_key_with_rate_limit)])
 
 if ML_ROUTER_AVAILABLE:
-    app.include_router(
-        crop_router,
-        dependencies=[Depends(verify_api_key_with_rate_limit)]
-    )
+    app.include_router(crop_router, dependencies=[Depends(verify_api_key_with_rate_limit)])
     logger.info("✓ ML Crop Prediction routes enabled")
 else:
     logger.warning("⚠️ ML Crop Prediction routes disabled (service not available)")
@@ -249,17 +256,21 @@ if not ADMIN_SECRET:
         "Set a strong random secret in .env: ADMIN_SECRET=your-secret-here"
     )
 
-
+# 2. FIXED: Admin Endpoint Security
 @app.post("/admin/generate-api-key")
-async def generate_new_api_key(admin_secret: str):
+async def generate_new_api_key(
+    x_admin_secret: str = Header(..., alias="X-Admin-Secret")
+):
     """
     Generate a new API key (admin only).
+    Uses Header authentication and constant-time comparison.
     """
-    if admin_secret != ADMIN_SECRET:
+    # 8. FIXED: Constant-time comparison
+    if not secrets.compare_digest(x_admin_secret, ADMIN_SECRET):
         logger.warning("Unauthorized admin access attempt")
         return JSONResponse(
             status_code=401,
-            content={"error": "Invalid admin secret"}
+            content={"error": "Invalid admin credentials"}
         )
     
     new_key = generate_api_key()
@@ -278,6 +289,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Catch all unhandled exceptions"""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     
+    # 7. FIXED: Sanitize Error Messages
+    safe_message = str(exc)
+    
+    # Clean sensitive patterns
+    safe_message = re.sub(r'/[a-zA-Z0-9/_.-]+\.py', '[FILE]', safe_message)
+    if 'sql' in safe_message.lower() or 'select' in safe_message.lower():
+        safe_message = "Database operation failed"
+
     if IS_PRODUCTION:
         return JSONResponse(
             status_code=500,
@@ -291,7 +310,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             status_code=500,
             content={
                 "error": "Internal server error",
-                "message": str(exc),
+                "message": safe_message[:200], # Truncate for safety
                 "type": type(exc).__name__
             }
         )
@@ -323,7 +342,6 @@ async def rate_limit_handler(request, exc):
     )
 
 
-# Startup event
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 50)
@@ -333,11 +351,9 @@ async def startup_event():
     logger.info(f"API Docs: {'ENABLED at /docs ✓' if not IS_PRODUCTION else 'DISABLED (production) ⚠️'}")
     logger.info(f"Security Headers: ENABLED")
     logger.info(f"ML Predictions: {'ENABLED ✓' if ML_ROUTER_AVAILABLE else 'DISABLED ⚠️'}")
-    logger.info(f"Bilingual Support: ENABLED ✓")
     logger.info("=" * 50)
 
 
-# Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("🛑 FarmBot Nova Backend Shutting Down")
