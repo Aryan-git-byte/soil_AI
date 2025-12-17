@@ -67,7 +67,7 @@ class RateLimiter:
     Simple in-memory rate limiter.
     ⚠️ PRODUCTION: Replace with Redis for horizontal scaling.
     """
-    def __init__(self, requests_per_minute: int = 60):
+    def __init__(self, requests_per_minute: int = 500):
         self.requests_per_minute = requests_per_minute
         self.requests = defaultdict(list)
     

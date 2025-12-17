@@ -6,6 +6,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.routers.ai import router as ai_router
 from app.routers.location import router as location_router
 from app.routers.image import router as image_router
+from app.routers.weather import router as weather_router
+from app.routers.sensors import router as sensors_router
+from app.routers import videos
 from app.core.security import verify_api_key_with_rate_limit, generate_api_key
 import os
 import logging
@@ -212,7 +215,21 @@ app.include_router(
     dependencies=[Depends(verify_api_key_with_rate_limit)]
 )
 
-# Add ML Crop Prediction Router (if available)
+app.include_router(
+    weather_router,
+    dependencies=[Depends(verify_api_key_with_rate_limit)]
+)
+
+app.include_router(
+    sensors_router,
+    dependencies=[Depends(verify_api_key_with_rate_limit)]
+)
+
+app.include_router(
+    videos.router,
+    dependencies=[Depends(verify_api_key_with_rate_limit)]
+)
+
 if ML_ROUTER_AVAILABLE:
     app.include_router(
         crop_router,
@@ -302,7 +319,7 @@ async def rate_limit_handler(request, exc):
             "error": "Rate limit exceeded",
             "message": "Maximum 60 requests per minute. Please try again later."
         },
-        headers={"Retry-After": "60"}
+        headers={"Retry-After": "200"}
     )
 
 

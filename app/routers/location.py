@@ -4,7 +4,7 @@ from app.services.weather_service import WeatherService
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables from .env
 load_dotenv()
 
 router = APIRouter(prefix="/api/location", tags=["Location Intelligence"])
