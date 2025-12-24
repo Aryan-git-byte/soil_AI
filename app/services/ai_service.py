@@ -156,7 +156,7 @@ async def call_openrouter(messages: list):
                         "X-Title": "FarmBot Nova"
                     },
                     json={
-                        "model": "amazon/nova-2-lite-v1:free",
+                        "model": "google/gemini-2.0-flash-001:online",
                         "messages": messages
                     }
                 )

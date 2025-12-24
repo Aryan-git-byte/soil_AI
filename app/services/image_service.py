@@ -111,7 +111,7 @@ Be specific, practical, and farmer-friendly.
                             "X-Title": "FarmBot Nova"
                         },
                         json={
-                            "model": "amazon/nova-2-lite-v1:free",  # Vision-capable model
+                            "model": "google/gemini-2.0-flash-001:online",  # Vision-capable model
                             "messages": messages
                         }
                     )
