@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import UploadFile
 from datetime import datetime
 
-from app.core.config import OPENROUTER_KEYS, OPENWEATHER_API_KEY
+from app.core.config import GROQ_API_KEY, OPENWEATHER_API_KEY
 from app.services.location_service import LocationService
 from app.services.weather_service import WeatherService
 from app.services.sensor_service import get_latest_sensor_data
@@ -139,39 +139,37 @@ def encode_image_to_base64(image_bytes: bytes) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-async def call_openrouter(messages: list):
-    """OpenRouter API call with fallback"""
+async def call_groq(messages: list, model: str):
+    """Groq API call"""
     
-    for i, key in enumerate(OPENROUTER_KEYS):
-        try:
-            logger.info(f"Trying OpenRouter key {i+1}/{len(OPENROUTER_KEYS)}")
-            
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://farmbot.com",
-                        "X-Title": "FarmBot Nova"
-                    },
-                    json={
-                        "model": "google/gemini-2.0-flash-001:online",
-                        "messages": messages
-                    }
-                )
+    if not GROQ_API_KEY:
+        raise Exception("GROQ_API_KEY is not set")
+        
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.7
+                }
+            )
 
-                if response.status_code == 200:
-                    logger.info(f"OpenRouter key {i+1} succeeded")
-                    return response.json()
-                else:
-                    error_msg = response.text[:200] if response.text else "No error body"
-                    logger.warning(f"OpenRouter key {i+1} failed: {response.status_code} - {error_msg}")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                error_msg = response.text[:200] if response.text else "No error body"
+                logger.error(f"Groq API failed: {response.status_code} - {error_msg}")
+                raise Exception(f"Groq API Error: {response.status_code}")
 
-        except Exception as e:
-            logger.error(f"OpenRouter key {i+1} exception: {str(e)[:150]}")
-
-    raise Exception("All OpenRouter keys failed")
+    except Exception as e:
+        logger.error(f"Groq API exception: {str(e)}")
+        raise
 
 
 def detect_season_from_date():
@@ -461,8 +459,12 @@ async def process_ai_query(
         messages.append({"role": "user", "content": prompt})
 
     # Call AI model
-    logger.info("Calling OpenRouter API...")
-    ai_response = await call_openrouter(messages)
+    logger.info("Calling Groq API...")
+    
+    # Use Llama 4 Scout for both text and vision
+    model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
+    
+    ai_response = await call_groq(messages, model_name)
     answer = ai_response["choices"][0]["message"]["content"]
     logger.info("Received AI response")
 

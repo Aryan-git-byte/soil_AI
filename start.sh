@@ -13,7 +13,7 @@ export ENVIRONMENT=production
 echo "🔍 Validating environment variables..."
 
 REQUIRED_VARS=(
-    "OPENROUTER_API_KEY_1"
+    "GROQ_API_KEY"
     "QDRANT_URL"
     "QDRANT_API_KEY"
     "SUPABASE_URL"

@@ -4,7 +4,7 @@ import os
 from typing import Optional, Dict
 from datetime import datetime
 import httpx
-from app.core.config import OPENROUTER_KEYS
+from app.core.config import GROQ_API_KEY
 
 class ImageAnalysisService:
     """
@@ -96,45 +96,51 @@ Be specific, practical, and farmer-friendly.
             }
         ]
 
-        # Try with each API key
-        for i, key in enumerate(OPENROUTER_KEYS):
-            try:
-                print(f"[ImageAnalysis] Trying key {i+1}/{len(OPENROUTER_KEYS)}...")
-                
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {key}",
-                            "Content-Type": "application/json",
-                            "HTTP-Referer": "https://farmbot.com",
-                            "X-Title": "FarmBot Nova"
-                        },
-                        json={
-                            "model": "google/gemini-2.0-flash-001:online",  # Vision-capable model
-                            "messages": messages
-                        }
-                    )
+        if not GROQ_API_KEY:
+             return {
+                "success": False,
+                "error": "GROQ_API_KEY is not set."
+            }
 
-                    if response.status_code == 200:
-                        print(f"[ImageAnalysis] ✅ Key {i+1} succeeded")
-                        result = response.json()
-                        return {
-                            "success": True,
-                            "analysis": result["choices"][0]["message"]["content"],
-                            "model": "google/gemini-2.0-flash-exp:free"
-                        }
-                    else:
-                        error_msg = response.text[:200] if response.text else "No error body"
-                        print(f"[ImageAnalysis] Key {i+1} failed: {response.status_code} - {error_msg}")
+        try:
+            print(f"[ImageAnalysis] Calling Groq API...")
+            
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {GROQ_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                        "messages": messages,
+                        "temperature": 0.7
+                    }
+                )
 
-            except Exception as e:
-                print(f"[ImageAnalysis] Key {i+1} exception: {str(e)[:150]}")
+                if response.status_code == 200:
+                    print(f"[ImageAnalysis] ✅ Groq API succeeded")
+                    result = response.json()
+                    return {
+                        "success": True,
+                        "analysis": result["choices"][0]["message"]["content"],
+                        "model": "meta-llama/llama-4-scout-17b-16e-instruct"
+                    }
+                else:
+                    error_msg = response.text[:200] if response.text else "No error body"
+                    print(f"[ImageAnalysis] Groq API failed: {response.status_code} - {error_msg}")
+                    return {
+                        "success": False,
+                        "error": f"Groq API Error: {response.status_code}"
+                    }
 
-        return {
-            "success": False,
-            "error": "All API keys failed. Please try again later."
-        }
+        except Exception as e:
+            print(f"[ImageAnalysis] Exception: {str(e)[:150]}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     @staticmethod
     def get_analysis_suggestions(analysis_type: str = "general") -> list:

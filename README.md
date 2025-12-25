@@ -10,7 +10,7 @@
 - Conversational AI that remembers your farming context
 - Maintains separate conversation threads per user
 - Supports both text and image queries in the same conversation
-- Powered by Amazon Nova 2 Lite via OpenRouter API
+- Powered by Groq (meta-llama/llama-4-scout-17b-16e-instruct)
 
 ### 📚 **RAG-Powered Knowledge Retrieval**
 - **Hybrid search system** combining vector database (Qdrant) and web search (Tavily)
@@ -70,7 +70,7 @@
 │                            ↓                                 │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │                   Services Layer                      │   │
-│  │  • AI Service (OpenRouter/Amazon Nova 2 Lite)        │   │
+│  │  • AI Service (Groq)                                 │   │
 │  │  • RAG Service (Qdrant + Tavily hybrid search)       │   │
 │  │  • Location Service (OSM, Wikipedia, Wikidata)       │   │
 │  │  • Weather Service (OpenWeather API)                 │   │
@@ -82,7 +82,7 @@
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                    External Services                         │
-│  • OpenRouter API (AI Vision + Text)                        │
+│  • Groq API (AI Vision + Text)                              │
 │  • Qdrant Cloud (Vector Database for RAG)                   │
 │  • Tavily API (Web Search)                                   │
 │  • Supabase (Database for sensors + conversations)          │
@@ -187,10 +187,8 @@ pip install -r requirements.txt
 Create a `.env` file in the root directory:
 
 ```env
-# OpenRouter API Keys (supports multiple for fallback)
-OPENROUTER_API_KEY_1=your_openrouter_key_1
-OPENROUTER_API_KEY_2=your_openrouter_key_2
-OPENROUTER_API_KEY_3=your_openrouter_key_3
+# Groq API Key
+GROQ_API_KEY=your_groq_api_key
 
 # OpenWeather API Key
 OPENWEATHER_API_KEY=your_openweather_key
