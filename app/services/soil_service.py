@@ -1,6 +1,8 @@
-# app/services/soil_service.py - Production Ready (No Files Required)
+# app/services/soil_service.py - Complete: Async + Redis Caching + Full Classification Logic
 import os
 import logging
+import json
+from app.core.cache import get_cached, set_cached
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +15,13 @@ except ImportError as e:
     RASTERIO_AVAILABLE = False
     logger.warning(f"⚠️ Rasterio not available: {e}")
 
-# Load environment variables
-SAND_FILE = os.getenv("SOIL_SAND_FILE")
-CLAY_FILE = os.getenv("SOIL_CLAY_FILE")
-SILT_FILE = os.getenv("SOIL_SILT_FILE")
-TEXTURE_FILE = os.getenv("SOIL_TEXTURE_FILE")
+# Load environment variables (Update these paths to match your server)
+SAND_FILE = r"D:\Downloads\Soil-Data\sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
+CLAY_FILE = r"D:\Downloads\Soil-Data\sol_clay.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
+SILT_FILE = r"D:\Downloads\Soil-Data\sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
+TEXTURE_FILE = r"D:\Downloads\Soil-Data\sol_texture.class_usda.tt_m_250m_b0..0cm_1950..2017_v0.2.tif"
 
-# ✅ FIX: Only validate files if they're configured AND exist
+# Validate configuration
 SOIL_FILES_CONFIGURED = all([SAND_FILE, CLAY_FILE, SILT_FILE, TEXTURE_FILE])
 SOIL_FILES_EXIST = False
 
@@ -72,7 +74,7 @@ TEXTURE_MAP = {
 
 
 def get_pixel(ds, lat, lon):
-    """Extract pixel value from raster dataset"""
+    """Extract pixel value from raster dataset (Synchronous Helper)"""
     if ds is None:
         return None
     
@@ -86,61 +88,64 @@ def get_pixel(ds, lat, lon):
         
         return float(value)
     except Exception as e:
-        logger.debug(f"Failed to get pixel at ({lat}, {lon}): {e}")
+        # logger.debug(f"Failed to get pixel at ({lat}, {lon}): {e}")
         return None
 
 
-def get_soil_physical(lat: float, lon: float):
+async def get_soil_physical(lat: float, lon: float):
     """
     Get soil physical properties at given coordinates.
-    Returns dict with sand/clay/silt percentages and texture class.
+    ⚡ OPTIMIZED: Uses Redis Cache (TTL: 30 days)
     """
-    # Check if soil data is available
-    if not all([sand_ds, clay_ds, silt_ds, texture_ds]):
-        return {
-            "sand_percent": None,
-            "clay_percent": None,
-            "silt_percent": None,
-            "texture": "Not Available",
-            "depth_cm": "0-5",
-            "source": "OpenLandMap 250m (0–5 cm Depth)",
-            "available": False,
-            "note": "Soil data files not available on this server"
-        }
-    
-    try:
-        sand = get_pixel(sand_ds, lat, lon)
-        clay = get_pixel(clay_ds, lat, lon)
-        silt = get_pixel(silt_ds, lat, lon)
-        texture_code = get_pixel(texture_ds, lat, lon)
-        
-        texture = None
-        try:
-            texture = TEXTURE_MAP.get(int(texture_code), "Unknown") if texture_code is not None else "Unknown"
-        except Exception:
-            texture = "Unknown"
+    # 1. Round coordinates to 3 decimals (~100m grid) for caching
+    lat_r = round(lat, 3)
+    lon_r = round(lon, 3)
+    cache_key = f"soil_data:{lat_r}:{lon_r}"
 
-        return {
-            "sand_percent": sand,
-            "clay_percent": clay,
-            "silt_percent": silt,
-            "texture": texture,
-            "depth_cm": "0-5",
-            "source": "OpenLandMap 250m (0–5 cm Depth)",
-            "available": True
-        }
-    except Exception as e:
-        logger.error(f"Error getting soil data for ({lat}, {lon}): {e}")
-        return {
-            "sand_percent": None,
-            "clay_percent": None,
-            "silt_percent": None,
-            "texture": "Error",
-            "depth_cm": "0-5",
-            "source": "OpenLandMap 250m (0–5 cm Depth)",
-            "available": False,
-            "error": str(e)
-        }
+    # 2. Check Cache
+    cached_data = await get_cached(cache_key)
+    if cached_data:
+        return cached_data
+
+    # 3. Slow Path: Read from Disk (TIFF files)
+    result = {
+        "sand_percent": None,
+        "clay_percent": None,
+        "silt_percent": None,
+        "texture": "Not Available",
+        "depth_cm": "0-5",
+        "source": "OpenLandMap 250m (0–5 cm Depth)",
+        "available": False
+    }
+
+    if all([sand_ds, clay_ds, silt_ds, texture_ds]):
+        try:
+            sand = get_pixel(sand_ds, lat, lon)
+            clay = get_pixel(clay_ds, lat, lon)
+            silt = get_pixel(silt_ds, lat, lon)
+            texture_code = get_pixel(texture_ds, lat, lon)
+            
+            texture = "Unknown"
+            if texture_code is not None:
+                texture = TEXTURE_MAP.get(int(texture_code), "Unknown")
+
+            if sand is not None:
+                result = {
+                    "sand_percent": sand,
+                    "clay_percent": clay,
+                    "silt_percent": silt,
+                    "texture": texture,
+                    "depth_cm": "0-5",
+                    "source": "OpenLandMap 250m (0–5 cm Depth)",
+                    "available": True
+                }
+        except Exception as e:
+            logger.error(f"Error reading soil rasters: {e}")
+
+    # 4. Save to Cache (Valid for 30 days / 2,592,000 seconds)
+    await set_cached(cache_key, result, expire=2592000)
+    
+    return result
 
 
 def classify_indian_soil_type(
@@ -153,6 +158,7 @@ def classify_indian_soil_type(
 ) -> dict:
     """
     Classifies soil into Indian soil types based on physical properties and location.
+    Pure logic function (CPU bound, fast, no need for async).
     """
     
     if sand_percent is None or clay_percent is None or silt_percent is None:
@@ -169,7 +175,7 @@ def classify_indian_soil_type(
     description = ""
     characteristics = []
     
-    # Geographic regions (rough lat/lon boundaries)
+    # Geographic regions (approximate bounding boxes)
     is_northern_plains = lat and 24 <= lat <= 30 and 75 <= lon <= 88
     is_deccan_plateau = lat and 15 <= lat <= 24 and 74 <= lon <= 81
     is_western_coast = lat and 8 <= lat <= 20 and 72 <= lon <= 77

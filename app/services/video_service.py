@@ -9,7 +9,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # ===============================
-# VIDEO SERVICE (DB ACCESS LAYER)
+# VIDEO SERVICE (DB ACCESS LAYERS)
 # ===============================
 
 def get_videos_by_language(language: str) -> List[Dict]:

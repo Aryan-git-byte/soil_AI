@@ -1,5 +1,5 @@
 # app/routers/ai.py
-from fastapi import APIRouter, Query, File, UploadFile, Form, HTTPException, status, Depends
+from fastapi import APIRouter, Query, File, UploadFile, Form, HTTPException, status, Depends, BackgroundTasks
 from app.services.ai_service import process_ai_query
 from app.services.conversation_service import ConversationService
 from typing import Optional
@@ -8,7 +8,7 @@ import re
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
 
-# 3. FIXED: Input Validation Helper
+# Input Validation Helper
 def validate_ai_inputs(
     query: str, 
     auth_id: str, 
@@ -30,6 +30,7 @@ def validate_ai_inputs(
 
 @router.post("/ask")
 async def ai_ask(
+    background_tasks: BackgroundTasks,  # <--- INJECTED HERE
     query: str = Form(..., description="Agricultural question or image description", min_length=1, max_length=5000),
     auth_id: str = Form(..., description="User authentication ID", min_length=1, max_length=100),
     conversation_id: str = Form(None, description="Conversation ID (optional)", max_length=100),
@@ -51,7 +52,8 @@ async def ai_ask(
         conversation_id=conversation_id,
         lat=lat,
         lon=lon,
-        image=image  # Can be None for text-only
+        image=image,  # Can be None for text-only
+        background_tasks=background_tasks # <--- PASSED TO SERVICE
     )
 
 
@@ -87,7 +89,6 @@ async def get_conversation_history(
     }
 
 
-# 6. FIXED: Secure Conversation Deletion
 @router.delete("/conversation")
 async def delete_conversation(
     conversation_id: str = Query(..., description="Conversation ID to delete", max_length=100),

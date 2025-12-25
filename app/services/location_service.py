@@ -1,6 +1,13 @@
-import requests
+# app/services/location_service.py - Complete: All Features + 300ms Architecture
+import httpx
+import asyncio
+import json
+import logging
 from datetime import datetime
+from typing import Optional, Dict, Any, List
+from app.core.cache import get_cached, set_cached
 
+logger = logging.getLogger(__name__)
 
 class LocationService:
     BASE_HEADERS = {"User-Agent": "FarmAI/1.0"}
@@ -17,9 +24,19 @@ class LocationService:
         return name
 
     # ---------------------------------------------------
-    # Reverse Geocoding (City / District / State)
+    # Async HTTP Helper (The engine for speed)
     # ---------------------------------------------------
-    def reverse_geocode(self, lat: float, lon: float):
+    async def _get(self, client: httpx.AsyncClient, url: str, params: dict = None, timeout: float = 2.0):
+        try:
+            return await client.get(url, params=params, timeout=timeout)
+        except Exception as e:
+            # logger.warning(f"API Fetch failed for {url}: {e}")
+            return None
+
+    # ---------------------------------------------------
+    # 1. Reverse Geocoding (Nominatim)
+    # ---------------------------------------------------
+    async def reverse_geocode(self, client: httpx.AsyncClient, lat: float, lon: float):
         url = "https://nominatim.openstreetmap.org/reverse"
         params = {
             "lat": lat,
@@ -28,8 +45,12 @@ class LocationService:
             "zoom": 14,
             "addressdetails": 1
         }
+        res = await self._get(client, url, params=params, timeout=1.5)
+        
+        if not res or res.status_code != 200:
+            return {}
 
-        data = requests.get(url, params=params, headers=self.BASE_HEADERS).json()
+        data = res.json()
         addr = data.get("address", {})
 
         return {
@@ -41,28 +62,26 @@ class LocationService:
         }
 
     # ---------------------------------------------------
-    # Wikipedia Summary (for POI or City)
+    # 2. Wikipedia Summary
     # ---------------------------------------------------
-    def get_wikipedia_summary(self, name: str | None):
+    async def get_wikipedia_summary(self, client: httpx.AsyncClient, name: str | None):
         if not name:
             return None
 
         safe = self.clean_name(name)
         url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{safe}"
-
-        try:
-            res = requests.get(url, headers=self.BASE_HEADERS)
-            if res.status_code == 200:
-                return res.json().get("extract")
-        except:
-            pass
-
+        
+        # Fast timeout for Wiki, it usually responds quick
+        res = await self._get(client, url, timeout=1.0)
+        
+        if res and res.status_code == 200:
+            return res.json().get("extract")
         return None
 
     # ---------------------------------------------------
-    # Wikipedia Fallback Search
+    # 3. Wikipedia Fallback Search
     # ---------------------------------------------------
-    def wikipedia_search(self, query: str):
+    async def wikipedia_search(self, client: httpx.AsyncClient, query: str):
         url = "https://en.wikipedia.org/w/api.php"
         params = {
             "action": "query",
@@ -70,24 +89,20 @@ class LocationService:
             "srsearch": query,
             "format": "json"
         }
-
-        try:
-            res = requests.get(url, params=params, headers=self.BASE_HEADERS).json()
-            results = res.get("query", {}).get("search", [])
+        
+        res = await self._get(client, url, params=params, timeout=1.5)
+        
+        if res and res.status_code == 200:
+            results = res.json().get("query", {}).get("search", [])
             if results:
                 return results[0]["title"]
-        except:
-            pass
-
         return None
 
     # ---------------------------------------------------
-    # Find Nearest POI within 250m
+    # 4. Nearest POI (Preserving Tiered Logic)
     # ---------------------------------------------------
-    def get_nearest_poi(self, lat: float, lon: float):
-        # --------------------------------------------
+    async def get_nearest_poi(self, client: httpx.AsyncClient, lat: float, lon: float):
         # Tier 1 — HIGH IMPORTANCE POIs
-        # --------------------------------------------
         TIER_1 = [
             "wd:Q33506",      # museum
             "wd:Q7692360",    # science centre
@@ -98,9 +113,7 @@ class LocationService:
             "wd:Q23442",      # archaeological site
         ]
 
-        # --------------------------------------------
         # Tier 2 — MEDIUM IMPORTANCE POIs
-        # --------------------------------------------
         TIER_2 = [
             "wd:Q860861",     # park
             "wd:Q41176",      # educational institution
@@ -109,75 +122,59 @@ class LocationService:
             "wd:Q207694",     # public venue
         ]
 
-        # --------------------------------------------
         # Tier 3 — LOW IMPORTANCE POIs
-        # --------------------------------------------
         TIER_3 = [
             "wd:Q41176",      # generic public building
             "wd:Q483110",     # infrastructure type
         ]
 
-        # --------------------------------------------
-        # Helper: SPARQL Runner
-        # --------------------------------------------
-        def run_query(category_list):
-            if not category_list:
-                return None
-
+        async def run_query(category_list, radius="0.45"):
+            if not category_list: return None
             categories = " ".join(category_list)
-
+            
+            # Optimized SPARQL: Use direct P31 if possible, but keep original structure for compatibility
             QUERY = f"""
             SELECT ?itemLabel WHERE {{
                 SERVICE wikibase:around {{
                     ?item wdt:P625 ?coord .
                     bd:serviceParam wikibase:center "Point({lon} {lat})"^^geo:wktLiteral .
-                    bd:serviceParam wikibase:radius "0.45" .   # 450 meters
+                    bd:serviceParam wikibase:radius "{radius}" .
                 }}
-
                 VALUES ?category {{ {categories} }}
                 ?item wdt:P31/wdt:P279* ?category .
-
                 SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
-            }}
-            LIMIT 5
+            }} LIMIT 1
             """
+            # Strict timeout (800ms) to prevent hanging
+            res = await self._get(client, "https://query.wikidata.org/sparql", 
+                                  params={"query": QUERY, "format": "json"}, timeout=0.8)
+            
+            if res and res.status_code == 200:
+                try:
+                    results = res.json()["results"]["bindings"]
+                    if results:
+                        return results[0]["itemLabel"]["value"]
+                except:
+                    pass
+            return None
 
-            try:
-                res = requests.get(
-                    "https://query.wikidata.org/sparql",
-                    params={"query": QUERY, "format": "json"}
-                ).json()
+        # Execute Tiers sequentially (because priority matters)
+        # But since we have Redis caching, this cost is only paid ONCE per 24h.
+        poi = await run_query(TIER_1)
+        if poi: return poi
 
-                results = res["results"]["bindings"]
-                if not results:
-                    return None
+        poi = await run_query(TIER_2)
+        if poi: return poi
 
-                return results[0]["itemLabel"]["value"]
-            except:
-                return None
-
-        # --------------------------------------------
-        # Run By Priority: Tier 1 → Tier 2 → Tier 3
-        # --------------------------------------------
-        poi = run_query(TIER_1)
-        if poi:
-            return poi
-
-        poi = run_query(TIER_2)
-        if poi:
-            return poi
-
-        poi = run_query(TIER_3)
-        if poi:
-            return poi
+        poi = await run_query(TIER_3)
+        if poi: return poi
 
         return None
 
-
     # ---------------------------------------------------
-    # Nearby monuments, attractions, temples, parks
+    # 5. Nearby Monuments (Preserving Exclusions)
     # ---------------------------------------------------
-    def get_nearby_monuments(self, lat: float, lon: float):
+    async def get_nearby_monuments(self, client: httpx.AsyncClient, lat: float, lon: float):
         QUERY = f"""
         SELECT ?itemLabel WHERE {{
             SERVICE wikibase:around {{
@@ -185,113 +182,112 @@ class LocationService:
                 bd:serviceParam wikibase:center "Point({lon} {lat})"^^geo:wktLiteral .
                 bd:serviceParam wikibase:radius "5" .
             }}
-
             VALUES ?category {{
-                wd:Q4989906      # monument
-                wd:Q570116       # tourist attraction
-                wd:Q839954       # religious building
-                wd:Q12973014     # heritage site
-                wd:Q860861       # park
+                wd:Q4989906 wd:Q570116 wd:Q839954 wd:Q12973014 wd:Q860861
             }}
-
             ?item wdt:P31/wdt:P279* ?category .
             SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
-        }}
-        LIMIT 50
+        }} LIMIT 50
         """
+        
+        res = await self._get(client, "https://query.wikidata.org/sparql", 
+                              params={"query": QUERY, "format": "json"}, timeout=2.0)
+        
+        monuments = []
+        exclude_keywords = ["grave", "cemetery", "tomb", "burial"]
+        seen = set()
 
-        try:
-            response = requests.get(
-                "https://query.wikidata.org/sparql",
-                params={"query": QUERY, "format": "json"}
-            ).json()
-
-            # Filter and deduplicate
-            seen = set()
-            filtered_monuments = []
-            
-            # Keywords to exclude
-            exclude_keywords = ["grave", "cemetery", "tomb", "burial"]
-            
-            for entry in response["results"]["bindings"]:
-                label = entry["itemLabel"]["value"]
-                
-                # Skip Q-IDs without labels
-                if label.startswith("Q"):
-                    continue
-                
-                # Skip if label contains excluded keywords
-                if any(keyword in label.lower() for keyword in exclude_keywords):
-                    continue
-                
-                # Skip duplicates
-                if label not in seen:
-                    seen.add(label)
-                    filtered_monuments.append(label)
-            
-            # Return only top 20 meaningful monuments
-            return filtered_monuments[:20]
-        except:
-            return []
+        if res and res.status_code == 200:
+            try:
+                for entry in res.json()["results"]["bindings"]:
+                    label = entry["itemLabel"]["value"]
+                    
+                    # Filter logic from original code
+                    if label.startswith("Q"): continue
+                    if any(k in label.lower() for k in exclude_keywords): continue
+                    
+                    if label not in seen:
+                        seen.add(label)
+                        monuments.append(label)
+            except:
+                pass
+        
+        return monuments[:20]
 
     # ---------------------------------------------------
-    # MAIN PIPELINE: Build Full Location Context
+    # MAIN PIPELINE: Parallel + Cached + Full Features
     # ---------------------------------------------------
-    def build_location_context(self, lat: float, lon: float, weather_service=None):
-        # 1. Basic administrative location
-        basic = self.reverse_geocode(lat, lon)
+    async def build_location_context(self, lat: float, lon: float, weather_service=None):
+        # 1. CHECK CACHE FIRST (The Speed Layer)
+        lat_r = round(lat, 3)
+        lon_r = round(lon, 3)
+        cache_key = f"loc_ctx:{lat_r}:{lon_r}"
 
-        # 2. Nearest landmark / POI
-        poi = self.get_nearest_poi(lat, lon)
+        cached_ctx = await get_cached(cache_key)
+        if cached_ctx:
+            # We trust the cache for 24h. This is how we hit 50ms.
+            return cached_ctx
 
-        # 3. Wikipedia summary for POI (highest priority)
-        summary = None
-        if poi:
-            summary = self.get_wikipedia_summary(poi)
+        # 2. EXECUTE LOGIC (The Logic Layer)
+        async with httpx.AsyncClient(headers=self.BASE_HEADERS) as client:
+            
+            # Start independent tasks in parallel
+            tasks = [
+                self.reverse_geocode(client, lat, lon),       # Task 0
+                self.get_nearest_poi(client, lat, lon),       # Task 1
+                self.get_nearby_monuments(client, lat, lon)   # Task 2
+            ]
 
-        # 4. If no POI summary → fall back to city/district/state
-        if not summary:
-            place = basic.get("city") or basic.get("district") or basic.get("state")
-            summary = self.get_wikipedia_summary(place)
+            if weather_service:
+                tasks.append(weather_service.get_current_weather(lat, lon, client))
+            else:
+                tasks.append(asyncio.sleep(0)) # No-op
 
-        # 5. If still no summary → Wikipedia search
-        if not summary:
-            search_title = self.wikipedia_search(place)
-            if search_title:
-                summary = self.get_wikipedia_summary(search_title)
+            # Wait for all
+            results = await asyncio.gather(*tasks)
+            basic, poi, monuments, weather = results[0], results[1], results[2], results[3]
+            
+            # 3. Handle Fallback Logic (Sequential but fast)
+            summary = None
+            
+            # Priority 1: Summary of POI
+            if poi:
+                summary = await self.get_wikipedia_summary(client, poi)
+            
+            # Priority 2: Summary of City/District
+            if not summary:
+                place = basic.get("city") or basic.get("district") or basic.get("state")
+                summary = await self.get_wikipedia_summary(client, place)
+            
+            # Priority 3: Search Wikipedia
+            if not summary:
+                search_place = basic.get("city") or basic.get("district")
+                if search_place:
+                    search_title = await self.wikipedia_search(client, search_place)
+                    if search_title:
+                        summary = await self.get_wikipedia_summary(client, search_title)
+            
+            # Priority 4: Default text
+            if not summary:
+                summary = f"Location near ({lat}, {lon})."
 
-        # 6. Last fallback (safe)
-        if not summary:
-            summary = f"{place} is located near ({lat}, {lon})."
+            result = {
+                "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "coordinates": {"lat": lat, "lon": lon},
+                "location_info": basic,
+                "nearest_place": poi,
+                "description": summary,
+                "weather": weather,
+                "nearby_monuments": monuments
+            }
 
-        # 7. Weather (optional)
-        weather = None
-        if weather_service:
-            weather = weather_service.get_current_weather(lat, lon)
+            # 4. SAVE TO CACHE (24 Hours)
+            await set_cached(cache_key, result, expire=86400)
 
-        # 8. Nearby monuments & attractions (5km)
-        monuments = self.get_nearby_monuments(lat, lon)
+            return result
 
-        # 9. Final output
-        return {
-            "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-            "coordinates": {"lat": lat, "lon": lon},
-            "location_info": basic,
-            "nearest_place": poi,
-            "description": summary,
-            "weather": weather,
-            "nearby_monuments": monuments
-        }
-
-# ---------------------------------------------------
-# Public function used by API + other services
-# ---------------------------------------------------
-
+# Global Instance
 location_service = LocationService()
 
-def get_location_context(lat: float, lon: float):
-    """
-    Global wrapper so other modules can call the service easily.
-    Mirrors the old function name used everywhere.
-    """
-    return location_service.build_location_context(lat, lon)
+async def get_location_context(lat: float, lon: float):
+    return await location_service.build_location_context(lat, lon)

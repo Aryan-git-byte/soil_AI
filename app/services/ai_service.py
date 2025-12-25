@@ -1,10 +1,11 @@
-# app/services/ai_service.py - Enhanced with Hindi/English Support
+# app/services/ai_service.py - Enhanced with Hindi/English Support & Background Tasks & Timing Analysis
 import json
 import httpx
 import base64
 import logging
+import time  # <--- Added import
 from typing import Optional
-from fastapi import UploadFile
+from fastapi import UploadFile, BackgroundTasks
 from datetime import datetime
 
 from app.core.config import GROQ_API_KEY, OPENWEATHER_API_KEY
@@ -225,10 +226,15 @@ async def process_ai_query(
     conversation_id: str,
     lat: float = None,
     lon: float = None,
-    image: Optional[UploadFile] = None
+    image: Optional[UploadFile] = None,
+    background_tasks: BackgroundTasks = None
 ):
     """Main AI query processor with bilingual support"""
     
+    # Initialize Timing Analysis
+    timings = {}
+    overall_start = time.perf_counter()
+
     # Detect language
     detected_lang = detect_language(query)
     logger.info(f"Detected language: {detected_lang} for query: {query[:50]}...")
@@ -242,6 +248,7 @@ async def process_ai_query(
     sensor = None
     
     # Get location coordinates
+    t0 = time.perf_counter()
     if lat is None or lon is None:
         sensor = await get_latest_sensor_data(lat=None, lon=None)
 
@@ -255,18 +262,25 @@ async def process_ai_query(
         lat = float(sensor.get("latitude", 0))
         lon = float(sensor.get("longitude", 0))
     
+    timings["get_coordinates_ms"] = round((time.perf_counter() - t0) * 1000, 2)
     logger.info(f"Using coordinates: ({lat}, {lon})")
     
-    # Build location context
-    location_context = location_service.build_location_context(lat, lon, weather_service)
+    # ----------------------------------------------------
+    # FIXED: Added 'await' because build_location_context is now async
+    # ----------------------------------------------------
+    t0 = time.perf_counter()
+    location_context = await location_service.build_location_context(lat, lon, weather_service)
+    timings["location_context_build_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    # Add soil physical properties
+    # 4. Soil Analysis
+    t0 = time.perf_counter()
     try:
-        soil_physical = get_soil_physical(lat, lon)
+        # Await the async physical data fetch
+        soil_physical = await get_soil_physical(lat, lon)
         location_context["soil_physical"] = soil_physical
         
-        # Indian soil classification
-        if soil_physical.get("sand_percent") and soil_physical.get("clay_percent") and soil_physical.get("silt_percent"):
+        # Only classify if we actually got data from the TIFFs or Cache
+        if soil_physical and soil_physical.get("available"):
             indian_soil = classify_indian_soil_type(
                 sand_percent=soil_physical["sand_percent"],
                 clay_percent=soil_physical["clay_percent"],
@@ -276,14 +290,21 @@ async def process_ai_query(
                 lon=lon
             )
             location_context["indian_soil_classification"] = indian_soil
+        else:
+            location_context["indian_soil_classification"] = None
+            
     except Exception as e:
+        logger.error(f"Soil data analysis failed: {e}")
         location_context["soil_physical"] = None
         location_context["indian_soil_classification"] = None
-        logger.error(f"Soil data error: {e}")
+    
+    timings["soil_analysis_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # Get sensor data if needed
+    t0 = time.perf_counter()
     if lat is not None and lon is not None and sensor is None:
         sensor = await get_latest_sensor_data(lat=lat, lon=lon)
+    timings["sensor_data_fetch_ms"] = round((time.perf_counter() - t0) * 1000, 2)
     
     # Build unified context
     full_context = {
@@ -308,8 +329,9 @@ async def process_ai_query(
     else:
         full_context["sensor_available"] = False
 
-    # ML Crop Prediction (works with both languages)
+    # ML Crop Prediction
     ml_prediction_used = False
+    t0 = time.perf_counter()
     
     if should_use_ml_prediction(query, sensor):
         try:
@@ -349,10 +371,13 @@ async def process_ai_query(
                 "error": "ML prediction unavailable",
                 "reason": str(e)
             }
+    timings["ml_prediction_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    # Get conversation history
+    # Get conversation history (Uses Redis now)
+    t0 = time.perf_counter()
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
+    timings["history_retrieval_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # Hybrid RAG search
     rag_info = {
@@ -362,6 +387,7 @@ async def process_ai_query(
         "error": None
     }
     
+    t0 = time.perf_counter()
     try:
         logger.info(f"Starting RAG search for: '{query[:50]}...'")
         
@@ -405,6 +431,7 @@ async def process_ai_query(
         logger.error(f"RAG search failed: {e}", exc_info=True)
         rag_context_text = ""
         rag_info["error"] = str(e)
+    timings["rag_search_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     full_context["knowledge_retrieval"] = rag_info
     
@@ -417,6 +444,7 @@ async def process_ai_query(
     has_image = image is not None
     image_metadata = None
     
+    t0 = time.perf_counter()
     if has_image:
         image_bytes = await image.read()
         image_base64 = encode_image_to_base64(image_bytes)
@@ -428,8 +456,10 @@ async def process_ai_query(
             "size": len(image_bytes)
         }
         logger.info(f"Processing image: {image.filename} ({len(image_bytes)} bytes)")
+    timings["image_processing_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    # Build messages with bilingual system prompt
+    # Build messages
+    t0 = time.perf_counter()
     prompt = build_prompt_bilingual(query, full_context, has_image)
     
     messages = [
@@ -446,7 +476,7 @@ async def process_ai_query(
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:{media_type};base64,{image_base64}"
+                        "url": f"data:{media_type};base_64,{image_base64}"
                     }
                 },
                 {
@@ -457,9 +487,11 @@ async def process_ai_query(
         })
     else:
         messages.append({"role": "user", "content": prompt})
+    timings["prompt_building_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # Call AI model
     logger.info("Calling Groq API...")
+    t0 = time.perf_counter()
     
     # Use Llama 4 Scout for both text and vision
     model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -467,8 +499,10 @@ async def process_ai_query(
     ai_response = await call_groq(messages, model_name)
     answer = ai_response["choices"][0]["message"]["content"]
     logger.info("Received AI response")
+    timings["llm_inference_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    # Save conversation
+    # Save conversation (Optimized: Using BackgroundTasks)
+    t0 = time.perf_counter()
     user_metadata = {
         "coordinates": {"lat": lat, "lon": lon},
         "ml_prediction_used": ml_prediction_used,
@@ -477,28 +511,49 @@ async def process_ai_query(
     if has_image:
         user_metadata["image"] = image_metadata
     
-    await conversation_service.save_message(
-        auth_id=auth_id,
-        conversation_id=conversation_id,
-        role="user",
-        content=query,
-        metadata=user_metadata
-    )
+    # Include timings in the metadata saved to DB
+    assistant_metadata = {
+        "rag_info": rag_info,
+        "had_image": has_image,
+        "ml_prediction_used": ml_prediction_used,
+        "language": detected_lang,
+        "processing_timings": timings  # Saved for debugging
+    }
+
+    if background_tasks:
+        background_tasks.add_task(
+            conversation_service.save_message,
+            auth_id, conversation_id, "user", query, user_metadata
+        )
+        background_tasks.add_task(
+            conversation_service.save_message,
+            auth_id, conversation_id, "assistant", answer, assistant_metadata
+        )
+    else:
+        # Fallback
+        await conversation_service.save_message(
+            auth_id=auth_id,
+            conversation_id=conversation_id,
+            role="user",
+            content=query,
+            metadata=user_metadata
+        )
+        
+        await conversation_service.save_message(
+            auth_id=auth_id,
+            conversation_id=conversation_id,
+            role="assistant",
+            content=answer,
+            metadata=assistant_metadata
+        )
     
-    await conversation_service.save_message(
-        auth_id=auth_id,
-        conversation_id=conversation_id,
-        role="assistant",
-        content=answer,
-        metadata={
-            "rag_info": rag_info,
-            "had_image": has_image,
-            "ml_prediction_used": ml_prediction_used,
-            "language": detected_lang
-        }
-    )
+    # Since DB save is now background (or effectively handled), we track the dispatch time
+    timings["db_save_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     logger.info(f"Query processed successfully for {auth_id} in {detected_lang}")
+    
+    # Total processing time
+    timings["total_processing_ms"] = round((time.perf_counter() - overall_start) * 1000, 2)
 
     return {
         "answer": answer,
@@ -508,5 +563,6 @@ async def process_ai_query(
         "had_image": has_image,
         "rag_info": rag_info,
         "ml_prediction_used": ml_prediction_used,
-        "detected_language": detected_lang
+        "detected_language": detected_lang,
+        "timing_analysis": timings  # <--- Added back
     }

@@ -73,7 +73,7 @@ def embed_query(text: str) -> list[float]:
 def search_knowledge(
     query: str,
     top_k: int = 8,
-    similarity_threshold: float = 0.25
+    similarity_threshold: float = 0.40
 ) -> List[Dict[str, Any]]:
     """Pure vector search in Qdrant knowledge base - NO FILTERS"""
     logger.info(f"RAG search: '{query[:50]}...' (top_k={top_k}, threshold={similarity_threshold})")
