@@ -73,6 +73,8 @@ Answer in clear bullet points unless asked otherwise.
 # ========================================
 # LANGUAGE DETECTION
 # ========================================
+
+
 def detect_language(text: str) -> str:
     """
     Detect if text is primarily Hindi or English.
@@ -81,13 +83,13 @@ def detect_language(text: str) -> str:
     # Hindi Unicode range: \u0900-\u097F (Devanagari)
     hindi_chars = sum(1 for c in text if '\u0900' <= c <= '\u097F')
     total_chars = len([c for c in text if c.isalpha()])
-    
+
     if total_chars == 0:
         return 'english'
-    
+
     # If >30% Hindi characters, treat as Hindi
     hindi_ratio = hindi_chars / total_chars if total_chars > 0 else 0
-    
+
     return 'hindi' if hindi_ratio > 0.3 else 'english'
 
 
@@ -96,17 +98,17 @@ def detect_language(text: str) -> str:
 # ========================================
 def build_prompt_bilingual(query: str, full_context: dict, has_image: bool = False):
     """Build AI prompt with bilingual awareness"""
-    
+
     detected_lang = detect_language(query)
-    
+
     ctx = json.dumps(full_context, indent=2)
-    
+
     # Language instruction based on detection
     if detected_lang == 'hindi':
         lang_instruction = "\n🌍 IMPORTANT: User is asking in HINDI. Respond in HINDI (हिंदी) using Devanagari script.\n"
     else:
         lang_instruction = "\n🌍 IMPORTANT: User is asking in ENGLISH. Respond in ENGLISH.\n"
-    
+
     if has_image:
         return f"""
 {lang_instruction}
@@ -140,16 +142,57 @@ def encode_image_to_base64(image_bytes: bytes) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-async def call_groq(messages: list, model: str):
-    """Groq API call"""
-    
+async def call_groq(messages: list, model: str, stream: bool = False):
+    """Groq API call.
+
+    If stream=True, perform a streaming request and collect chunks while
+    measuring time-to-first-token (ttf_ms) and total LLM time (llm_ms).
+    Returns:
+      - if stream=False: the parsed JSON response (same as before)
+      - if stream=True: dict with keys `answer` (str), `ttf_ms` (float|None), `llm_ms` (float)
+    """
+
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY is not set")
-        
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    if not stream:
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {GROQ_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": 0.7
+                    }
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    error_msg = response.text[:200] if response.text else "No error body"
+                    logger.error(
+                        f"Groq API failed: {response.status_code} - {error_msg}")
+                    raise Exception(f"Groq API Error: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"Groq API exception: {str(e)}")
+            raise
+
+    # Streaming path
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
+        async with httpx.AsyncClient(timeout=None) as client:
+            start = time.perf_counter()
+            # Request stream
+            async with client.stream(
+                "POST",
+                url,
                 headers={
                     "Authorization": f"Bearer {GROQ_API_KEY}",
                     "Content-Type": "application/json"
@@ -157,26 +200,66 @@ async def call_groq(messages: list, model: str):
                 json={
                     "model": model,
                     "messages": messages,
-                    "temperature": 0.7
+                    "temperature": 0.7,
+                    "stream": True
                 }
-            )
+            ) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    logger.error(
+                        f"Groq streaming failed: {resp.status_code} - {body[:200]}")
+                    raise Exception(
+                        f"Groq streaming failed: {resp.status_code}")
 
-            if response.status_code == 200:
-                return response.json()
-            else:
-                error_msg = response.text[:200] if response.text else "No error body"
-                logger.error(f"Groq API failed: {response.status_code} - {error_msg}")
-                raise Exception(f"Groq API Error: {response.status_code}")
+                full_answer = ""
+                ttf_ms = None
+
+                # Iterate over streaming lines (supports SSE-like or newline-delimited JSON)
+                async for raw_line in resp.aiter_lines():
+                    if not raw_line:
+                        continue
+                    line = raw_line.strip()
+                    # Some streaming endpoints prefix with "data:"
+                    if line.startswith("data:"):
+                        line = line[len("data:"):].strip()
+
+                    if not line:
+                        continue
+
+                    # Some streams send a stop marker
+                    if line == "[DONE]":
+                        break
+
+                    chunk_text = ""
+                    try:
+                        payload = json.loads(line)
+                        # Try to extract token delta content (common pattern)
+                        choice = (payload.get("choices") or [{}])[0]
+                        delta = choice.get("delta") or {}
+                        chunk_text = delta.get(
+                            "content") or choice.get("text") or ""
+                    except Exception:
+                        # Not JSON — treat whole line as text
+                        chunk_text = line
+
+                    if chunk_text:
+                        if ttf_ms is None:
+                            ttf_ms = round(
+                                (time.perf_counter() - start) * 1000, 2)
+                        full_answer += chunk_text
+
+                llm_ms = round((time.perf_counter() - start) * 1000, 2)
+                return {"answer": full_answer, "ttf_ms": ttf_ms, "llm_ms": llm_ms}
 
     except Exception as e:
-        logger.error(f"Groq API exception: {str(e)}")
+        logger.error(f"Groq streaming exception: {e}")
         raise
 
 
 def detect_season_from_date():
     """Detect Indian agricultural season from current date"""
     month = datetime.now().month
-    
+
     # Kharif: June-November (monsoon crops)
     if 6 <= month <= 11:
         return "kharif"
@@ -195,25 +278,25 @@ def should_use_ml_prediction(query: str, sensor: dict = None) -> bool:
     """
     if not ML_AVAILABLE or not sensor:
         return False
-    
+
     # Check if required sensor data is available
     required_fields = ["n", "p", "k", "ph"]
     if not all(sensor.get(field) is not None for field in required_fields):
         return False
-    
+
     # Keywords in both English and Hindi
     ml_keywords_en = [
         "crop", "grow", "plant", "recommend", "suggestion",
         "best", "suitable", "optimal", "should i", "what to"
     ]
-    
+
     ml_keywords_hi = [
         "फसल", "उगा", "लगा", "सुझाव", "सिफारिश",
         "अच्छा", "उपयुक्त", "बेहतर", "कौन सा", "क्या"
     ]
-    
+
     query_lower = query.lower()
-    
+
     return (
         any(keyword in query_lower for keyword in ml_keywords_en) or
         any(keyword in query for keyword in ml_keywords_hi)
@@ -230,23 +313,25 @@ async def process_ai_query(
     background_tasks: BackgroundTasks = None
 ):
     """Main AI query processor with bilingual support"""
-    
+
     # Initialize Timing Analysis
     timings = {}
     overall_start = time.perf_counter()
 
     # Detect language
     detected_lang = detect_language(query)
-    logger.info(f"Detected language: {detected_lang} for query: {query[:50]}...")
-    
-    logger.info(f"Processing AI query for user {auth_id}, conversation {conversation_id}")
-    
+    logger.info(
+        f"Detected language: {detected_lang} for query: {query[:50]}...")
+
+    logger.info(
+        f"Processing AI query for user {auth_id}, conversation {conversation_id}")
+
     # Initialize services
     location_service = LocationService()
     weather_service = WeatherService(api_key=OPENWEATHER_API_KEY)
     conversation_service = ConversationService()
     sensor = None
-    
+
     # Get location coordinates
     t0 = time.perf_counter()
     if lat is None or lon is None:
@@ -255,22 +340,24 @@ async def process_ai_query(
         if not sensor:
             # Return error message in detected language
             if detected_lang == 'hindi':
-                raise Exception("कोई सेंसर डेटा उपलब्ध नहीं है और कोई स्थान प्रदान नहीं किया गया")
+                raise Exception(
+                    "कोई सेंसर डेटा उपलब्ध नहीं है और कोई स्थान प्रदान नहीं किया गया")
             else:
                 raise Exception("No sensor data and no lat/lon provided")
 
         lat = float(sensor.get("latitude", 0))
         lon = float(sensor.get("longitude", 0))
-    
+
     timings["get_coordinates_ms"] = round((time.perf_counter() - t0) * 1000, 2)
     logger.info(f"Using coordinates: ({lat}, {lon})")
-    
+
     # ----------------------------------------------------
     # FIXED: Added 'await' because build_location_context is now async
     # ----------------------------------------------------
     t0 = time.perf_counter()
     location_context = await location_service.build_location_context(lat, lon, weather_service)
-    timings["location_context_build_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+    timings["location_context_build_ms"] = round(
+        (time.perf_counter() - t0) * 1000, 2)
 
     # 4. Soil Analysis
     t0 = time.perf_counter()
@@ -278,7 +365,7 @@ async def process_ai_query(
         # Await the async physical data fetch
         soil_physical = await get_soil_physical(lat, lon)
         location_context["soil_physical"] = soil_physical
-        
+
         # Only classify if we actually got data from the TIFFs or Cache
         if soil_physical and soil_physical.get("available"):
             indian_soil = classify_indian_soil_type(
@@ -292,27 +379,28 @@ async def process_ai_query(
             location_context["indian_soil_classification"] = indian_soil
         else:
             location_context["indian_soil_classification"] = None
-            
+
     except Exception as e:
         logger.error(f"Soil data analysis failed: {e}")
         location_context["soil_physical"] = None
         location_context["indian_soil_classification"] = None
-    
+
     timings["soil_analysis_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # Get sensor data if needed
     t0 = time.perf_counter()
     if lat is not None and lon is not None and sensor is None:
         sensor = await get_latest_sensor_data(lat=lat, lon=lon)
-    timings["sensor_data_fetch_ms"] = round((time.perf_counter() - t0) * 1000, 2)
-    
+    timings["sensor_data_fetch_ms"] = round(
+        (time.perf_counter() - t0) * 1000, 2)
+
     # Build unified context
     full_context = {
         "coordinates": {"lat": lat, "lon": lon},
         "location_context": location_context,
         "language_detected": detected_lang
     }
-    
+
     # Add sensor data
     if sensor:
         full_context["sensor_data"] = {
@@ -332,21 +420,22 @@ async def process_ai_query(
     # ML Crop Prediction
     ml_prediction_used = False
     t0 = time.perf_counter()
-    
+
     if should_use_ml_prediction(query, sensor):
         try:
             logger.info("🌾 Triggering ML crop prediction...")
-            
-            state = location_context.get("location_info", {}).get("state", "bihar")
+
+            state = location_context.get(
+                "location_info", {}).get("state", "bihar")
             if state:
                 state = state.lower().replace(" ", "")
-            
+
             season = detect_season_from_date()
             weather = location_context.get("weather", {})
             temperature = weather.get("temperature", 25.0)
             humidity = weather.get("humidity", 70.0)
             rainfall = 100.0
-            
+
             ml_results = crop_predictor.predict_crops(
                 temperature=temperature,
                 humidity=humidity,
@@ -359,12 +448,13 @@ async def process_ai_query(
                 potassium=sensor.get("k", 50.0),
                 top_k=5
             )
-            
+
             full_context["ml_crop_predictions"] = ml_results
             ml_prediction_used = True
-            
-            logger.info(f"✓ ML predictions: {[c['crop'] for c in ml_results['recommended_crops'][:3]]}")
-            
+
+            logger.info(
+                f"✓ ML predictions: {[c['crop'] for c in ml_results['recommended_crops'][:3]]}")
+
         except Exception as e:
             logger.error(f"ML prediction failed: {e}", exc_info=True)
             full_context["ml_crop_predictions"] = {
@@ -377,7 +467,8 @@ async def process_ai_query(
     t0 = time.perf_counter()
     history = await conversation_service.get_conversation_history(conversation_id, limit=20)
     formatted_history = conversation_service.format_history_for_ai(history)
-    timings["history_retrieval_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+    timings["history_retrieval_ms"] = round(
+        (time.perf_counter() - t0) * 1000, 2)
 
     # Hybrid RAG search
     rag_info = {
@@ -386,19 +477,19 @@ async def process_ai_query(
         "web_results": [],
         "error": None
     }
-    
+
     t0 = time.perf_counter()
     try:
         logger.info(f"Starting RAG search for: '{query[:50]}...'")
-        
+
         hybrid_results = await hybrid_search(
             query=query,
             top_k_rag=8,
             top_k_web=5
         )
-        
+
         rag_context_text = format_hybrid_context(hybrid_results)
-        
+
         rag_info = {
             "success": True,
             "rag_chunks_count": hybrid_results["rag_count"],
@@ -424,9 +515,10 @@ async def process_ai_query(
                 for result in hybrid_results["web_results"][:3]
             ]
         }
-        
-        logger.info(f"RAG search successful: rag={rag_info['rag_chunks_count']}, web={rag_info['web_results_count']}")
-        
+
+        logger.info(
+            f"RAG search successful: rag={rag_info['rag_chunks_count']}, web={rag_info['web_results_count']}")
+
     except Exception as e:
         logger.error(f"RAG search failed: {e}", exc_info=True)
         rag_context_text = ""
@@ -434,7 +526,7 @@ async def process_ai_query(
     timings["rag_search_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     full_context["knowledge_retrieval"] = rag_info
-    
+
     if rag_context_text:
         full_context["retrieved_knowledge"] = rag_context_text
     else:
@@ -443,31 +535,33 @@ async def process_ai_query(
     # Process image if provided
     has_image = image is not None
     image_metadata = None
-    
+
     t0 = time.perf_counter()
     if has_image:
         image_bytes = await image.read()
         image_base64 = encode_image_to_base64(image_bytes)
         media_type = image.content_type
-        
+
         image_metadata = {
             "filename": image.filename,
             "content_type": media_type,
             "size": len(image_bytes)
         }
-        logger.info(f"Processing image: {image.filename} ({len(image_bytes)} bytes)")
-    timings["image_processing_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+        logger.info(
+            f"Processing image: {image.filename} ({len(image_bytes)} bytes)")
+    timings["image_processing_ms"] = round(
+        (time.perf_counter() - t0) * 1000, 2)
 
     # Build messages
     t0 = time.perf_counter()
     prompt = build_prompt_bilingual(query, full_context, has_image)
-    
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT_BILINGUAL}
     ]
-    
+
     messages.extend(formatted_history)
-    
+
     # Add current query
     if has_image:
         messages.append({
@@ -489,17 +583,18 @@ async def process_ai_query(
         messages.append({"role": "user", "content": prompt})
     timings["prompt_building_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    # Call AI model
-    logger.info("Calling Groq API...")
-    t0 = time.perf_counter()
-    
+    # Call AI model (streaming) and measure TTFT
+    logger.info("Calling Groq API (streaming=True)...")
     # Use Llama 4 Scout for both text and vision
     model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
-    
-    ai_response = await call_groq(messages, model_name)
-    answer = ai_response["choices"][0]["message"]["content"]
-    logger.info("Received AI response")
-    timings["llm_inference_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+
+    # Use streaming=True to get tokens as they arrive. We collect them here and
+    # measure time-to-first-token (ttf_ms) and total llm time (llm_ms).
+    ai_stream_resp = await call_groq(messages, model_name, stream=True)
+    answer = ai_stream_resp.get("answer", "")
+    logger.info("Received AI response (streaming)")
+    timings["llm_inference_ms"] = ai_stream_resp.get("llm_ms")
+    timings["ttft_ms"] = ai_stream_resp.get("ttf_ms")
 
     # Save conversation (Optimized: Using BackgroundTasks)
     t0 = time.perf_counter()
@@ -510,7 +605,7 @@ async def process_ai_query(
     }
     if has_image:
         user_metadata["image"] = image_metadata
-    
+
     # Include timings in the metadata saved to DB
     assistant_metadata = {
         "rag_info": rag_info,
@@ -538,7 +633,7 @@ async def process_ai_query(
             content=query,
             metadata=user_metadata
         )
-        
+
         await conversation_service.save_message(
             auth_id=auth_id,
             conversation_id=conversation_id,
@@ -546,14 +641,16 @@ async def process_ai_query(
             content=answer,
             metadata=assistant_metadata
         )
-    
+
     # Since DB save is now background (or effectively handled), we track the dispatch time
     timings["db_save_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    logger.info(f"Query processed successfully for {auth_id} in {detected_lang}")
-    
+    logger.info(
+        f"Query processed successfully for {auth_id} in {detected_lang}")
+
     # Total processing time
-    timings["total_processing_ms"] = round((time.perf_counter() - overall_start) * 1000, 2)
+    timings["total_processing_ms"] = round(
+        (time.perf_counter() - overall_start) * 1000, 2)
 
     return {
         "answer": answer,

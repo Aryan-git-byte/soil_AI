@@ -16,10 +16,10 @@ except ImportError as e:
     logger.warning(f"⚠️ Rasterio not available: {e}")
 
 # Load environment variables (Update these paths to match your server)
-SAND_FILE = r"D:\Downloads\Soil-Data\sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
-CLAY_FILE = r"D:\Downloads\Soil-Data\sol_clay.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
-SILT_FILE = r"D:\Downloads\Soil-Data\sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif"
-TEXTURE_FILE = r"D:\Downloads\Soil-Data\sol_texture.class_usda.tt_m_250m_b0..0cm_1950..2017_v0.2.tif"
+SAND_FILE = r"D:\Desktop\Aryan jr. science\FarmBotAI\soil_AI\soil_AI\raster_files\sand_india_fixed.tif"
+CLAY_FILE = r"D:\Desktop\Aryan jr. science\FarmBotAI\soil_AI\soil_AI\raster_files\clay_india_fixed.tif"
+SILT_FILE = r"D:\Desktop\Aryan jr. science\FarmBotAI\soil_AI\soil_AI\raster_files\silt_india_fixed.tif"
+TEXTURE_FILE = r"D:\Desktop\Aryan jr. science\FarmBotAI\soil_AI\soil_AI\raster_files\texture_india_fixed.tif"
 
 # Validate configuration
 SOIL_FILES_CONFIGURED = all([SAND_FILE, CLAY_FILE, SILT_FILE, TEXTURE_FILE])

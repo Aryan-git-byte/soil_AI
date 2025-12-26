@@ -18,8 +18,14 @@ COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "farmbot_knowledge")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 # Validate required environment variables
-if not QDRANT_URL or not QDRANT_API_KEY:
-    raise RuntimeError("❌ CRITICAL: QDRANT_URL and QDRANT_API_KEY must be set in environment")
+if not QDRANT_URL:
+    raise RuntimeError("❌ CRITICAL: QDRANT_URL must be set in environment")
+
+# For localhost, API key is optional
+is_localhost = "localhost" in QDRANT_URL or "127.0.0.1" in QDRANT_URL
+if not is_localhost and not QDRANT_API_KEY:
+    raise RuntimeError(
+        "❌ CRITICAL: QDRANT_API_KEY must be set for remote Qdrant instances")
 
 if not TAVILY_API_KEY:
     logger.warning("⚠️ TAVILY_API_KEY not set. Web search will be disabled.")
@@ -27,11 +33,21 @@ if not TAVILY_API_KEY:
 # Initialize Qdrant client
 logger.info(f"Connecting to Qdrant at {QDRANT_URL}...")
 try:
-    qdrant_client = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
-        timeout=60
-    )
+    # For localhost, don't pass API key if it's empty
+    if is_localhost and not QDRANT_API_KEY:
+        qdrant_client = QdrantClient(
+            url=QDRANT_URL,
+            timeout=60
+        )
+        logger.info("✓ Connecting to localhost Qdrant (no API key required)")
+    else:
+        qdrant_client = QdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            timeout=60
+        )
+        logger.info("✓ Connecting to Qdrant with API key")
+
     # Test connection
     qdrant_client.get_collection(COLLECTION_NAME)
     logger.info(f"✓ Connected to Qdrant collection: {COLLECTION_NAME}")
@@ -43,14 +59,14 @@ except Exception as e:
 logger.info("Loading embedding model...")
 try:
     _model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2",
-    device="cpu"
-)
+        "sentence-transformers/all-MiniLM-L6-v2",
+        device="cpu"
+    )
 # ✅ Use half precision to save 50% memory
     import torch
     if hasattr(_model, 'half'):
         _model = _model.half()
-    
+
     logger.info("✓ Embedding model loaded successfully")
 except Exception as e:
     logger.error(f"❌ Failed to load embedding model: {e}")
@@ -61,7 +77,7 @@ def embed_query(text: str) -> list[float]:
     """Generate query embedding"""
     if not text:
         return []
-    
+
     try:
         vec = _model.encode(text, show_progress_bar=False)
         return vec.tolist()
@@ -76,8 +92,9 @@ def search_knowledge(
     similarity_threshold: float = 0.40
 ) -> List[Dict[str, Any]]:
     """Pure vector search in Qdrant knowledge base - NO FILTERS"""
-    logger.info(f"RAG search: '{query[:50]}...' (top_k={top_k}, threshold={similarity_threshold})")
-    
+    logger.info(
+        f"RAG search: '{query[:50]}...' (top_k={top_k}, threshold={similarity_threshold})")
+
     embedding = embed_query(query)
     if not embedding:
         logger.warning("Failed to generate embedding for query")
@@ -91,9 +108,9 @@ def search_knowledge(
             limit=top_k * 2,
             score_threshold=similarity_threshold
         )
-        
+
         logger.info(f"Qdrant returned {len(search_result.points)} points")
-        
+
         # Convert Qdrant results to our format
         results = []
         for hit in search_result.points:
@@ -107,11 +124,11 @@ def search_knowledge(
                 "text": hit.payload.get("text")
             }
             results.append(result)
-        
+
         filtered_results = results[:top_k]
         logger.info(f"Returning {len(filtered_results)} RAG results")
         return filtered_results
-        
+
     except Exception as e:
         logger.error(f"RAG search failed: {e}", exc_info=True)
         return []
@@ -125,18 +142,21 @@ async def search_tavily(
     exclude_domains: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """Tavily web search integration"""
-    
+
     if not TAVILY_API_KEY:
         logger.warning("Tavily API key not configured, skipping web search")
         return []
-    
-    logger.info(f"Tavily search: '{query[:50]}...' (max_results={max_results})")
-    
+
+    logger.info(
+        f"Tavily search: '{query[:50]}...' (max_results={max_results})")
+
     # Detect query type for better search
     query_lower = query.lower()
-    is_location_query = any(word in query_lower for word in ["near", "nearby", "kvk", "location", "find", "where"])
-    is_recent_query = any(word in query_lower for word in ["latest", "recent", "new", "current", "today", "2024", "2025"])
-    
+    is_location_query = any(word in query_lower for word in [
+                            "near", "nearby", "kvk", "location", "find", "where"])
+    is_recent_query = any(word in query_lower for word in [
+                          "latest", "recent", "new", "current", "today", "2024", "2025"])
+
     # Adjust search parameters
     if is_location_query or is_recent_query:
         search_depth = "advanced"
@@ -144,11 +164,11 @@ async def search_tavily(
     else:
         ag_domains = [
             "icar.gov.in",
-            "agricoop.gov.in", 
+            "agricoop.gov.in",
             "kvk.org.in",
         ]
         domains = include_domains or ag_domains
-    
+
     # Exclude PDFs
     pdf_domains = ["*.pdf", "agritech.tnau.ac.in/pdf/*"]
     exclude = exclude_domains or pdf_domains
@@ -162,31 +182,32 @@ async def search_tavily(
                 "max_results": max_results,
                 "include_answer": True
             }
-            
+
             if domains:
                 payload["include_domains"] = domains
-            
+
             response = await client.post(
                 "https://api.tavily.com/search",
                 json=payload
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 results = data.get("results", [])
-                
+
                 # Filter out PDFs
                 filtered = [
-                    r for r in results 
+                    r for r in results
                     if not r.get("url", "").endswith(".pdf")
                 ]
-                
+
                 logger.info(f"Tavily returned {len(filtered)} results")
                 return filtered
             else:
-                logger.error(f"Tavily error {response.status_code}: {response.text[:200]}")
+                logger.error(
+                    f"Tavily error {response.status_code}: {response.text[:200]}")
                 return []
-                
+
     except Exception as e:
         logger.error(f"Tavily search failed: {e}", exc_info=True)
         return []
@@ -199,34 +220,38 @@ async def hybrid_search(
     force_web: bool = False
 ) -> Dict[str, Any]:
     """Combined RAG + Tavily search - NO CROP/REGION FILTERS"""
-    
+
     logger.info(f"Hybrid search: '{query[:50]}...'")
-    
+
     # Phase 1: RAG Search
     rag_results = search_knowledge(query, top_k_rag)
-    
+
     # Phase 2: Decide if web search is needed
     query_lower = query.lower()
-    location_keywords = ["near", "nearby", "kvk", "location", "find", "where", "search"]
-    time_keywords = ["latest", "recent", "current", "new", "today", "2024", "2025"]
-    
-    has_location_keyword = any(word in query_lower for word in location_keywords)
+    location_keywords = ["near", "nearby", "kvk",
+                         "location", "find", "where", "search"]
+    time_keywords = ["latest", "recent",
+                     "current", "new", "today", "2024", "2025"]
+
+    has_location_keyword = any(
+        word in query_lower for word in location_keywords)
     has_time_keyword = any(word in query_lower for word in time_keywords)
-    
+
     needs_web = (
         force_web or
         len(rag_results) < 3 or
         has_time_keyword or
         has_location_keyword
     )
-    
-    logger.info(f"Web search decision: needs_web={needs_web} (rag_count={len(rag_results)}, time={has_time_keyword}, location={has_location_keyword})")
-    
+
+    logger.info(
+        f"Web search decision: needs_web={needs_web} (rag_count={len(rag_results)}, time={has_time_keyword}, location={has_location_keyword})")
+
     web_results = []
     if needs_web:
         web_data = await search_tavily(query, top_k_web)
         web_results = web_data
-    
+
     result = {
         "rag_chunks": rag_results,
         "web_results": web_results,
@@ -242,8 +267,9 @@ async def hybrid_search(
             "decided_web": needs_web
         }
     }
-    
-    logger.info(f"Hybrid search complete: rag={result['rag_count']}, web={result['web_count']}")
+
+    logger.info(
+        f"Hybrid search complete: rag={result['rag_count']}, web={result['web_count']}")
     return result
 
 
@@ -294,15 +320,15 @@ def format_web_context(results: List[Dict[str, Any]]) -> str:
 def format_hybrid_context(hybrid_results: Dict[str, Any]) -> str:
     """Format combined RAG + Web results"""
     sections = []
-    
+
     # Knowledge base section
     if hybrid_results["rag_chunks"]:
         sections.append("=== KNOWLEDGE BASE ===")
         sections.append(format_context(hybrid_results["rag_chunks"]))
-    
+
     # Web search section
     if hybrid_results["web_results"]:
         sections.append("\n=== RECENT WEB RESULTS ===")
         sections.append(format_web_context(hybrid_results["web_results"]))
-    
+
     return "\n\n".join(sections)
