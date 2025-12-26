@@ -322,10 +322,10 @@ This checks:
 
 Download soil datasets from [OpenLandMap](https://openlandmap.org/):
 
-- `sand.wfraction_usda.3a1a1a_m_250m_b0cm_19500101_20171231_go_epsg.4326_v0.2.tif`
-- `sol_clay.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif`
-- `sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif`
-- `sol_texture.class_usda.tt_m_250m_b0..0cm_1950..2017_v0.2.tif`
+- `sand.wfraction_usda.3a1a1a_m_250m_b0cm_19500101_20171231_go_epsg.4326_v0.2.tif` - [sand](https://stac.openlandmap.org/sand.wfraction_usda.3a1a1a/sand.wfraction_usda.3a1a1a_19500101_20171231/sand.wfraction_usda.3a1a1a_19500101_20171231.json?.language=en&.asset=asset-sand.wfraction_usda.3a1a1a_m_250m_b0cm)
+- `sol_clay.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif` - [clay](https://zenodo.org/records/2525663)
+- `sol_silt.wfraction_usda.3a1a1a_m_250m_b0..0cm_1950..2017_v0.2.tif` - [silt](https://zenodo.org/records/2525676)
+- `sol_texture.class_usda.tt_m_250m_b0..0cm_1950..2017_v0.2.tif`- [texture](https://zenodo.org/records/2525817)
 
 Update file paths in `app/services/soil_service.py`:
 
