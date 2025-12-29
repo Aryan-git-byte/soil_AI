@@ -91,6 +91,7 @@ tmp/
 # Ignore raw PDFs
 knowledge_pipeline/sources/*.pdf
 knowledge_pipeline/archive/**/*.pdf
+knowledge_pipeline/Docling/pdf/*.pdf
 
 # supabase
 .supabase/  
@@ -102,3 +103,4 @@ knowledge_chunks_rows.csv
 index.html
 static/
 static
+model_cache/

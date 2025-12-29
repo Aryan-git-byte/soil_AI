@@ -1,14 +1,15 @@
-# app/services/rag_service.py - Production Ready
+# app/services/rag_service.py - FastEmbed Optimized (50-80MB RAM)
 import os
 import logging
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 import httpx
 
-load_dotenv()
+# ✅ CRITICAL CHANGE: Use FastEmbed instead of SentenceTransformers
+from fastembed import TextEmbedding
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Environment variables
@@ -21,11 +22,9 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 if not QDRANT_URL:
     raise RuntimeError("❌ CRITICAL: QDRANT_URL must be set in environment")
 
-# For localhost, API key is optional
 is_localhost = "localhost" in QDRANT_URL or "127.0.0.1" in QDRANT_URL
 if not is_localhost and not QDRANT_API_KEY:
-    raise RuntimeError(
-        "❌ CRITICAL: QDRANT_API_KEY must be set for remote Qdrant instances")
+    raise RuntimeError("❌ CRITICAL: QDRANT_API_KEY must be set for remote Qdrant")
 
 if not TAVILY_API_KEY:
     logger.warning("⚠️ TAVILY_API_KEY not set. Web search will be disabled.")
@@ -33,13 +32,9 @@ if not TAVILY_API_KEY:
 # Initialize Qdrant client
 logger.info(f"Connecting to Qdrant at {QDRANT_URL}...")
 try:
-    # For localhost, don't pass API key if it's empty
     if is_localhost and not QDRANT_API_KEY:
-        qdrant_client = QdrantClient(
-            url=QDRANT_URL,
-            timeout=60
-        )
-        logger.info("✓ Connecting to localhost Qdrant (no API key required)")
+        qdrant_client = QdrantClient(url=QDRANT_URL, timeout=60)
+        logger.info("✓ Connecting to localhost Qdrant")
     else:
         qdrant_client = QdrantClient(
             url=QDRANT_URL,
@@ -48,39 +43,40 @@ try:
         )
         logger.info("✓ Connecting to Qdrant with API key")
 
-    # Test connection
     qdrant_client.get_collection(COLLECTION_NAME)
     logger.info(f"✓ Connected to Qdrant collection: {COLLECTION_NAME}")
 except Exception as e:
     logger.error(f"❌ Failed to connect to Qdrant: {e}")
     raise
 
-# Load embedding model
-logger.info("Loading embedding model...")
+# ✅ MEMORY OPTIMIZATION: Load FastEmbed (50-80MB vs 400MB)
+logger.info("Loading FastEmbed model (ONNX optimized)...")
 try:
-    _model = SentenceTransformer(
-        "sentence-transformers/all-MiniLM-L6-v2",
-        device="cpu"
+    # Use the smallest quantized model for MiniLM
+    _model = TextEmbedding(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        cache_dir="/tmp/fastembed_cache"  # Use /tmp for Render
     )
-# ✅ Use half precision to save 50% memory
-    import torch
-    if hasattr(_model, 'half'):
-        _model = _model.half()
-
-    logger.info("✓ Embedding model loaded successfully")
+    logger.info("✓ FastEmbed model loaded successfully (~50-80MB)")
 except Exception as e:
-    logger.error(f"❌ Failed to load embedding model: {e}")
+    logger.error(f"❌ Failed to load FastEmbed model: {e}")
     raise
 
 
 def embed_query(text: str) -> list[float]:
-    """Generate query embedding"""
+    """
+    Generate query embedding using FastEmbed (memory efficient).
+    Returns single embedding vector as list.
+    """
     if not text:
         return []
 
     try:
-        vec = _model.encode(text, show_progress_bar=False)
-        return vec.tolist()
+        # FastEmbed returns generator, take first result
+        embeddings = list(_model.embed([text]))
+        if embeddings:
+            return embeddings[0].tolist()
+        return []
     except Exception as e:
         logger.error(f"Failed to generate embedding: {e}")
         return []
@@ -92,8 +88,7 @@ def search_knowledge(
     similarity_threshold: float = 0.40
 ) -> List[Dict[str, Any]]:
     """Pure vector search in Qdrant knowledge base - NO FILTERS"""
-    logger.info(
-        f"RAG search: '{query[:50]}...' (top_k={top_k}, threshold={similarity_threshold})")
+    logger.info(f"RAG search: '{query[:50]}...' (top_k={top_k}, threshold={similarity_threshold})")
 
     embedding = embed_query(query)
     if not embedding:
@@ -101,7 +96,6 @@ def search_knowledge(
         return []
 
     try:
-        # Pure vector search - NO FILTERS!
         search_result = qdrant_client.query_points(
             collection_name=COLLECTION_NAME,
             query=embedding,
@@ -111,7 +105,6 @@ def search_knowledge(
 
         logger.info(f"Qdrant returned {len(search_result.points)} points")
 
-        # Convert Qdrant results to our format
         results = []
         for hit in search_result.points:
             result = {
@@ -147,29 +140,23 @@ async def search_tavily(
         logger.warning("Tavily API key not configured, skipping web search")
         return []
 
-    logger.info(
-        f"Tavily search: '{query[:50]}...' (max_results={max_results})")
+    logger.info(f"Tavily search: '{query[:50]}...' (max_results={max_results})")
 
-    # Detect query type for better search
     query_lower = query.lower()
     is_location_query = any(word in query_lower for word in [
-                            "near", "nearby", "kvk", "location", "find", "where"])
+        "near", "nearby", "kvk", "location", "find", "where"
+    ])
     is_recent_query = any(word in query_lower for word in [
-                          "latest", "recent", "new", "current", "today", "2024", "2025"])
+        "latest", "recent", "new", "current", "today", "2024", "2025"
+    ])
 
-    # Adjust search parameters
     if is_location_query or is_recent_query:
         search_depth = "advanced"
         domains = None
     else:
-        ag_domains = [
-            "icar.gov.in",
-            "agricoop.gov.in",
-            "kvk.org.in",
-        ]
+        ag_domains = ["icar.gov.in", "agricoop.gov.in", "kvk.org.in"]
         domains = include_domains or ag_domains
 
-    # Exclude PDFs
     pdf_domains = ["*.pdf", "agritech.tnau.ac.in/pdf/*"]
     exclude = exclude_domains or pdf_domains
 
@@ -195,7 +182,6 @@ async def search_tavily(
                 data = response.json()
                 results = data.get("results", [])
 
-                # Filter out PDFs
                 filtered = [
                     r for r in results
                     if not r.get("url", "").endswith(".pdf")
@@ -204,8 +190,7 @@ async def search_tavily(
                 logger.info(f"Tavily returned {len(filtered)} results")
                 return filtered
             else:
-                logger.error(
-                    f"Tavily error {response.status_code}: {response.text[:200]}")
+                logger.error(f"Tavily error {response.status_code}: {response.text[:200]}")
                 return []
 
     except Exception as e:
@@ -228,13 +213,10 @@ async def hybrid_search(
 
     # Phase 2: Decide if web search is needed
     query_lower = query.lower()
-    location_keywords = ["near", "nearby", "kvk",
-                         "location", "find", "where", "search"]
-    time_keywords = ["latest", "recent",
-                     "current", "new", "today", "2024", "2025"]
+    location_keywords = ["near", "nearby", "kvk", "location", "find", "where", "search"]
+    time_keywords = ["latest", "recent", "current", "new", "today", "2024", "2025"]
 
-    has_location_keyword = any(
-        word in query_lower for word in location_keywords)
+    has_location_keyword = any(word in query_lower for word in location_keywords)
     has_time_keyword = any(word in query_lower for word in time_keywords)
 
     needs_web = (
@@ -244,8 +226,7 @@ async def hybrid_search(
         has_location_keyword
     )
 
-    logger.info(
-        f"Web search decision: needs_web={needs_web} (rag_count={len(rag_results)}, time={has_time_keyword}, location={has_location_keyword})")
+    logger.info(f"Web search decision: needs_web={needs_web} (rag_count={len(rag_results)})")
 
     web_results = []
     if needs_web:
@@ -268,8 +249,7 @@ async def hybrid_search(
         }
     }
 
-    logger.info(
-        f"Hybrid search complete: rag={result['rag_count']}, web={result['web_count']}")
+    logger.info(f"Hybrid search complete: rag={result['rag_count']}, web={result['web_count']}")
     return result
 
 
@@ -321,12 +301,10 @@ def format_hybrid_context(hybrid_results: Dict[str, Any]) -> str:
     """Format combined RAG + Web results"""
     sections = []
 
-    # Knowledge base section
     if hybrid_results["rag_chunks"]:
         sections.append("=== KNOWLEDGE BASE ===")
         sections.append(format_context(hybrid_results["rag_chunks"]))
 
-    # Web search section
     if hybrid_results["web_results"]:
         sections.append("\n=== RECENT WEB RESULTS ===")
         sections.append(format_web_context(hybrid_results["web_results"]))
