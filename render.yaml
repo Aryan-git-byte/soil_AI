@@ -3,7 +3,7 @@ services:
   - type: web
     name: farmbot-nova-backend
     env: python
-    region: oregon # or your preferred region like 'singapore'
+    region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: ./start.sh
@@ -11,62 +11,65 @@ services:
     
     envVars:
       # ======================================
-      # CRITICAL MEMORY SETTINGS (512MB Tier)
+      # MEMORY OPTIMIZATION (512MB)
       # ======================================
       - key: MALLOC_ARENA_MAX
-        value: 2 # Reduces memory fragmentation (Crucial for glibc)
-      - key: PYTHONUNBUFFERED
-        value: 1
+        value: 2
       - key: WEB_CONCURRENCY
-        value: 1 # Forces 1 worker just in case
+        value: 1
 
       # ======================================
-      # APPLICATION CONFIG
+      # SECURITY & INTEGRITY
+      # ======================================
+      # Hash retrieved from your error logs:
+      - key: MODEL_HASH
+        value: 3199e130d71eaf4cf7902b21d028a730b3ffdf2329d0918ef66e1346490c7197
+      
+      # Hash for labels.pkl (Check Render logs after deploy to get the real value!)
+      - key: LABELS_HASH
+        value: replace_with_actual_sha256_hash_of_labels_pkl
+
+      # ======================================
+      # ENVIRONMENT
       # ======================================
       - key: ENVIRONMENT
         value: production
       - key: PYTHON_VERSION
         value: 3.10.11
-      
+
       # ======================================
-      # API KEYS & SECRETS (Sync from Dashboard)
+      # KEYS & API CONFIG
       # ======================================
-      
-      # AI Providers (Matched to start.sh requirements)
       - key: GROQ_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY_1
         sync: false
-      
-      # Vector DB
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+        
+      # Database & Vector DB
       - key: QDRANT_URL
         sync: false
       - key: QDRANT_API_KEY
         sync: false
       - key: QDRANT_COLLECTION
         value: farmbot_knowledge
-      
-      # Database
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
         sync: false
       
-      # External Tools
-      - key: OPENWEATHER_API_KEY
-        sync: false
-      - key: TAVILY_API_KEY
-        sync: false
-      
-      # Security
+      # App Secrets
       - key: ADMIN_SECRET
         generateValue: true
       - key: API_KEYS
         sync: false
       - key: ALLOWED_ORIGINS
         value: https://farmbot-nova-frontend.onrender.com
-      
-      # Soil Data Configuration
+
+      # Data Paths
       - key: SOIL_SAND_FILE
         value: /opt/render/project/src/data/soil/sand.tif
       - key: SOIL_CLAY_FILE

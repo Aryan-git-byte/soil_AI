@@ -30,3 +30,5 @@ redis==5.0.1
 
 # Utilities
 tqdm==4.66.1
+
+python-multipart
