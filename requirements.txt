@@ -5,9 +5,11 @@
 # Core Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
+gunicorn==21.2.0
 
 # HTTP Client
 httpx==0.27.2
+requests==2.31.0
 
 # Environment & Config
 python-dotenv==1.0.0
@@ -15,23 +17,16 @@ python-dotenv==1.0.0
 # Database
 supabase==2.7.0
 
-# ✅ FIX: Pin NumPy to 1.x for rasterio compatibility
+# Geospatial Data (Pinned for compatibility)
 numpy<2.0.0
-
-# Geospatial Data
 rasterio==1.3.9
 
-# HTTP Requests
-requests==2.31.0
-
 # RAG & Embeddings
-fastembed==0.3.6  # ✅ Add
-redis==5.0.1      # ✅ Recommended for caching
+fastembed==0.3.6
 qdrant-client==1.12.1
 
-# PDF Processing
-# (add pymupdf if needed)
+# Caching
+redis==5.0.1
 
-# Additional Dependencies
+# Utilities
 tqdm==4.66.1
-gunicorn

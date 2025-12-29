@@ -3,38 +3,42 @@ services:
   - type: web
     name: farmbot-nova-backend
     env: python
-    region: oregon # or your preferred region
-    plan: free # or free for testing
+    region: oregon # or your preferred region like 'singapore'
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: ./start.sh
     healthCheckPath: /health
     
     envVars:
-      # Environment
+      # ======================================
+      # CRITICAL MEMORY SETTINGS (512MB Tier)
+      # ======================================
+      - key: MALLOC_ARENA_MAX
+        value: 2 # Reduces memory fragmentation (Crucial for glibc)
+      - key: PYTHONUNBUFFERED
+        value: 1
+      - key: WEB_CONCURRENCY
+        value: 1 # Forces 1 worker just in case
+
+      # ======================================
+      # APPLICATION CONFIG
+      # ======================================
       - key: ENVIRONMENT
         value: production
-      
-      # Python
       - key: PYTHON_VERSION
         value: 3.10.11
       
       # ======================================
-      # SYNC THESE FROM RENDER DASHBOARD
+      # API KEYS & SECRETS (Sync from Dashboard)
       # ======================================
       
-      # OpenRouter API Keys (add in dashboard as secrets)
+      # AI Providers (Matched to start.sh requirements)
+      - key: GROQ_API_KEY
+        sync: false
       - key: OPENROUTER_API_KEY_1
         sync: false
-      - key: OPENROUTER_API_KEY_2
-        sync: false
-      - key: OPENROUTER_API_KEY_3
-        sync: false
       
-      # OpenWeather
-      - key: OPENWEATHER_API_KEY
-        sync: false
-      
-      # Qdrant
+      # Vector DB
       - key: QDRANT_URL
         sync: false
       - key: QDRANT_API_KEY
@@ -42,32 +46,27 @@ services:
       - key: QDRANT_COLLECTION
         value: farmbot_knowledge
       
-      # Tavily
-      - key: TAVILY_API_KEY
-        sync: false
-      
-      # Supabase
+      # Database
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
         sync: false
       
+      # External Tools
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      
       # Security
       - key: ADMIN_SECRET
-        generateValue: true # Render will generate a random secret
-      
+        generateValue: true
       - key: API_KEYS
-        sync: false # Add your API keys in dashboard
-      
-      # CORS (update with your frontend URL)
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://farmbot-nova-frontend.onrender.com
       
-      # Rate Limiting
-      - key: RATE_LIMIT_PER_MINUTE
-        value: 60
-      
-      # Soil Data (optional - not needed if you don't have soil files)
+      # Soil Data Configuration
       - key: SOIL_SAND_FILE
         value: /opt/render/project/src/data/soil/sand.tif
       - key: SOIL_CLAY_FILE
@@ -77,7 +76,7 @@ services:
       - key: SOIL_TEXTURE_FILE
         value: /opt/render/project/src/data/soil/texture.tif
 
-  # Static Frontend (if hosting on Render)
+  # Static Frontend
   - type: web
     name: farmbot-nova-frontend
     env: static
