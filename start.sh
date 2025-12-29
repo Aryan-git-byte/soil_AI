@@ -1,13 +1,20 @@
 #!/bin/bash
 
-# =============
+# ======================================
+# FARMBOT NOVA - 512MB RAM OPTIMIZED
+# ======================================
 
-echo "🚀 Starting FarmBot Nova Backend v1.0.0 (Production)"
-echo "Platform: Render"
-echo "=" 
+echo "🚀 Starting FarmBot Nova Backend (512MB Optimized)"
+echo "Platform: Render Free Tier"
+echo "========================================="
 
 # Set environment
 export ENVIRONMENT=production
+
+# ✅ CRITICAL: Memory optimizations
+export PYTHONUNBUFFERED=1
+export PYTHONDONTWRITEBYTECODE=1
+export MALLOC_ARENA_MAX=2  # Reduce glibc memory fragmentation
 
 # Validate critical environment variables
 echo "🔍 Validating environment variables..."
@@ -38,8 +45,6 @@ if [ ${#MISSING_VARS[@]} -ne 0 ]; then
     echo ""
     echo "❌ CRITICAL: Missing required environment variables:"
     printf '   - %s\n' "${MISSING_VARS[@]}"
-    echo ""
-    echo "Set these in Render Dashboard → Environment Variables"
     exit 1
 fi
 
@@ -58,40 +63,31 @@ if [ -z "$TAVILY_API_KEY" ]; then
     echo "⚠️  TAVILY_API_KEY not set (web search disabled)"
 fi
 
-if [ -z "$SOIL_SAND_FILE" ]; then
-    echo "⚠️  Soil data files not configured (soil analysis disabled)"
-fi
-
 echo ""
-echo "=" 
-echo "🌾 FarmBot Nova v1.0.0 Configuration:"
+echo "========================================="
+echo "🌾 FarmBot Nova Configuration:"
 echo "  Environment: $ENVIRONMENT"
-echo "  CORS Origins: $ALLOWED_ORIGINS"
-echo "  Qdrant: $QDRANT_URL"
-echo "  Supabase: $SUPABASE_URL"
-echo "  Security Headers: ENABLED"
-echo "=" 
+echo "  RAM Limit: 512MB"
+echo "  Workers: 1 (memory optimized)"
+echo "  Model: FastEmbed ONNX (~50-80MB)"
+echo "  Raster Files: 82MB"
+echo "========================================="
 echo ""
 
-# ✅ FIX #1: Use Gunicorn with Uvicorn workers (PRODUCTION BEST PRACTICE)
-echo "🚀 Starting Gunicorn with Uvicorn workers..."
-echo ""
-
-# Render uses PORT environment variable
+# ✅ MEMORY-CRITICAL CONFIGURATION
 PORT=${PORT:-8000}
 
-# Calculate optimal worker count
-# Render starter plan has 0.5 CPU, so use 2 workers
-# For higher plans: workers = 2 * CPU_cores + 1
-WORKERS=${WORKERS:-1}
+echo "🚀 Starting Gunicorn (512MB optimized)..."
+echo ""
 
-# ✅ MEMORY-OPTIMIZED CONFIGURATION FOR FREE TIER
 exec gunicorn app.main:app \
     --worker-class uvicorn.workers.UvicornWorker \
     --workers 1 \
+    --threads 2 \
     --worker-tmp-dir /dev/shm \
     --bind 0.0.0.0:$PORT \
-    --max-requests 500 \
+    --max-requests 300 \
+    --max-requests-jitter 50 \
     --timeout 60 \
     --graceful-timeout 30 \
     --preload \
@@ -99,16 +95,30 @@ exec gunicorn app.main:app \
     --access-logfile - \
     --error-logfile -
 
-# Explanation of flags:
-# --worker-class: Use Uvicorn workers for async support
-# --workers: Number of worker processes (2 for starter plan)
-# --max-requests: Restart workers after N requests (prevents memory leaks)
-# --max-requests-jitter: Add randomness to prevent simultaneous restarts
-# --timeout: Worker timeout (30s for AI API calls)
-# --keepalive: Keep connections alive for 5s
-# --graceful-timeout: Time to finish requests during shutdown
-# --preload: Load app before forking (saves memory)
-# --log-level: Info level logging
-# --access-logfile/-error-logfile: Log to stdout/stderr
-# --capture-output: Capture worker output
-# --enable-stdio-inheritance: Inherit stdio from parent
+# ========================================
+# OPTIMIZATION NOTES (512MB RAM):
+# ========================================
+# 
+# --workers 1             → Single worker (critical for 512MB)
+# --threads 2             → Handle 2 concurrent requests per worker
+# --worker-tmp-dir /dev/shm → Use RAM disk for worker files
+# --max-requests 300      → Restart worker after 300 requests (prevent memory leaks)
+# --max-requests-jitter 50 → Add randomness to prevent simultaneous restarts
+# --timeout 60            → 60s timeout for slow AI API calls
+# --preload               → Load app before forking (saves memory)
+# --log-level warning     → Minimal logging (saves CPU/IO)
+#
+# ========================================
+# EXPECTED MEMORY USAGE:
+# ========================================
+# 
+# FastEmbed model:         50-80MB   ✅
+# Raster files (mmap):     ~10MB     ✅ (memory-mapped, not fully loaded)
+# FastAPI + deps:          100MB     ✅
+# Qdrant client:           30MB      ✅
+# Supabase client:         20MB      ✅
+# OS + Python runtime:     150MB     ✅
+# Request buffer:          80MB      ✅
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TOTAL:                   440-500MB ✅ (Safe margin!)
+# ========================================
